@@ -1,0 +1,15 @@
+# Build outputs
+/dist/
+/hq
+/hq.exe
+*.test
+coverage.out
+
+# Local interface runtime state
+/.hq-interface/
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
