@@ -78,7 +78,12 @@ func TestResolve_RejectsAbsolutePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = r.Resolve("C:\\Windows\\System32")
+	// Use a platform-appropriate absolute path.
+	absPath := "/etc/passwd"
+	if filepath.Separator == '\\' {
+		absPath = "C:\\Windows\\System32"
+	}
+	_, err = r.Resolve(absPath)
 	if err == nil {
 		t.Fatal("expected error for absolute path")
 	}
