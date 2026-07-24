@@ -182,7 +182,7 @@ func hashFixtureFiles(t *testing.T, relPath string) map[string]string {
 	fixturePath := filepath.Join(testutil.ModuleRoot(), relPath)
 	hashes := make(map[string]string)
 
-	err = filepath.WalkDir(fixturePath, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(fixturePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
