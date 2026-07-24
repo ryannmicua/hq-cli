@@ -69,6 +69,10 @@ func TestLoad_FromCurrentDir(t *testing.T) {
 	defer os.Chdir(origDir) //nolint:errcheck
 
 	tmp := t.TempDir()
+	resolvedTmp, err := filepath.EvalSymlinks(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chdir(tmp); err != nil {
 		t.Fatal(err)
 	}
@@ -78,8 +82,8 @@ func TestLoad_FromCurrentDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if cfg.Root != filepath.Clean(tmp) {
-		t.Fatalf("Root = %q, want %q", cfg.Root, filepath.Clean(tmp))
+	if cfg.Root != filepath.Clean(resolvedTmp) {
+		t.Fatalf("Root = %q, want %q", cfg.Root, filepath.Clean(resolvedTmp))
 	}
 }
 

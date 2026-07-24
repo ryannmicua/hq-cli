@@ -39,12 +39,16 @@ func TestNewResolver_RejectsFileRoot(t *testing.T) {
 
 func TestResolve_AcceptsPathWithinRoot(t *testing.T) {
 	dir := t.TempDir()
-	sub := filepath.Join(dir, "subdir")
+	resolvedBase, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(resolvedBase, "subdir")
 	if err := os.Mkdir(sub, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	r, err := hq.NewResolver(dir)
+	r, err := hq.NewResolver(resolvedBase)
 	if err != nil {
 		t.Fatal(err)
 	}
