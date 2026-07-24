@@ -69,10 +69,6 @@ func TestLoad_FromCurrentDir(t *testing.T) {
 	defer os.Chdir(origDir) //nolint:errcheck
 
 	tmp := t.TempDir()
-	resolvedTmp, err := filepath.EvalSymlinks(tmp)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Chdir(tmp); err != nil {
 		t.Fatal(err)
 	}
@@ -82,8 +78,13 @@ func TestLoad_FromCurrentDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if cfg.Root != filepath.Clean(resolvedTmp) {
-		t.Fatalf("Root = %q, want %q", cfg.Root, filepath.Clean(resolvedTmp))
+	// Compare against os.Getwd (which config.Load uses internally),
+	// not t.TempDir, because on Windows the temp dir may use 8.3
+	// short names while os.Getwd returns the long form.
+	wd, _ := os.Getwd()
+	wd, _ = filepath.EvalSymlinks(wd)
+	if cfg.Root != filepath.Clean(wd) {
+		t.Fatalf("Root = %q, want %q", cfg.Root, filepath.Clean(wd))
 	}
 }
 
