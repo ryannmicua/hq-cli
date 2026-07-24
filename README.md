@@ -57,7 +57,7 @@ This repository remains authoritative for implementation and delivery evidence. 
 - HQ tracking project: `C:\Users\rmicua\hq\projects\hq-cli\`
 - Canonical architecture: `docs/architecture.md`
 - Canonical requirements: `docs/requirements.md`
-- Master plan: `docs/superpowers/plans/2026-07-24-hq-cli-master.md`
+- Master plan: `docs/plans/2026-07-24-hq-cli-master.md`
 - Preserved original prompt: `docs/source/hq-interface-design-prompt.md`
 - HQ safety rules: `C:\Users\rmicua\hq\safety-boundaries.md`
 
