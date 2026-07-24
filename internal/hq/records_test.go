@@ -2,7 +2,6 @@ package hq_test
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
