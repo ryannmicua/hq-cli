@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ryannmicua/hq-cli/internal/hq"
+	"github.com/ryannmicua/hq-cli/internal/testutil"
 )
 
 func TestGet_ProjectByID(t *testing.T) {
@@ -190,28 +191,9 @@ func TestCollectionAllowlist_ExcludesHidden(t *testing.T) {
 	}
 }
 
-// mustResolver creates a Resolver from a repo-relative path, failing the
-// test on error. It finds the module root by looking for go.mod.
 func mustResolver(t *testing.T, relPath string) *hq.Resolver {
 	t.Helper()
-
-	// Start from the test working directory and walk up to find go.mod.
-	moduleRoot, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd: %v", err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(moduleRoot, "go.mod")); err == nil {
-			break
-		}
-		parent := filepath.Dir(moduleRoot)
-		if parent == moduleRoot {
-			t.Fatal("could not find module root (go.mod)")
-		}
-		moduleRoot = parent
-	}
-
-	abs := filepath.Join(moduleRoot, relPath)
+	abs := filepath.Join(testutil.ModuleRoot(), relPath)
 	r, err := hq.NewResolver(abs)
 	if err != nil {
 		t.Fatalf("NewResolver(%q): %v", abs, err)

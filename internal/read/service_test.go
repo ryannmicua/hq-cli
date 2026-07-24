@@ -10,27 +10,12 @@ import (
 
 	"github.com/ryannmicua/hq-cli/internal/config"
 	"github.com/ryannmicua/hq-cli/internal/read"
+	"github.com/ryannmicua/hq-cli/internal/testutil"
 )
 
 func mustService(t *testing.T) *read.Service {
 	t.Helper()
-	abs, err := filepath.Abs("testdata/hq")
-	if err != nil {
-		t.Fatalf("Abs: %v", err)
-	}
-	// Walk up to find module root.
-	root := abs
-	for {
-		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
-			break
-		}
-		parent := filepath.Dir(root)
-		if parent == root {
-			t.Fatal("go.mod not found")
-		}
-		root = parent
-	}
-	hqRoot := filepath.Join(root, "testdata", "hq")
+	hqRoot := filepath.Join(testutil.ModuleRoot(), "testdata", "hq")
 	cfg, err := config.Load(hqRoot, func(s string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -194,24 +179,7 @@ func TestSearch_ByCollection(t *testing.T) {
 // hashFixtureFiles walks a fixture directory and computes SHA-256 for every file.
 func hashFixtureFiles(t *testing.T, relPath string) map[string]string {
 	t.Helper()
-	abs, err := filepath.Abs(relPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Walk up to find go.mod.
-	root := abs
-	for {
-		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
-			break
-		}
-		parent := filepath.Dir(root)
-		if parent == root {
-			t.Fatal("go.mod not found")
-		}
-		root = parent
-	}
-
-	fixturePath := filepath.Join(root, relPath)
+	fixturePath := filepath.Join(testutil.ModuleRoot(), relPath)
 	hashes := make(map[string]string)
 
 	err = filepath.WalkDir(fixturePath, func(path string, d os.DirEntry, err error) error {

@@ -345,10 +345,9 @@ func determineID(relPath, collection string) string {
 		base := filepath.Base(normalized)
 		return strings.TrimSuffix(base, ".md")
 	case "work-types":
-		// Remove the "work-types/" prefix and ".md" suffix.
 		trimmed := strings.TrimPrefix(normalized, "work-types/")
 		trimmed = strings.TrimSuffix(trimmed, ".md")
-		return strings.TrimSuffix(trimmed, "/example-work")
+		return filepath.Base(trimmed)
 	case "people":
 		base := filepath.Base(normalized)
 		return strings.TrimSuffix(base, ".md")

@@ -11,31 +11,13 @@ import (
 	"testing"
 
 	"github.com/ryannmicua/hq-cli/internal/app"
+	"github.com/ryannmicua/hq-cli/internal/testutil"
 )
-
-// findModuleRoot walks up from the test's working directory to find go.mod.
-func findModuleRoot(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd: %v", err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("go.mod not found")
-		}
-		dir = parent
-	}
-}
 
 // runHQ is a helper that invokes app.Run with the given args and fixture root.
 func runHQ(t *testing.T, args []string) (stdout string, stderr string, exitCode int) {
 	t.Helper()
-	root := findModuleRoot(t)
+	root := testutil.ModuleRoot()
 	hqRoot := filepath.Join(root, "testdata", "hq")
 	fullArgs := append([]string{"--root", hqRoot}, args...)
 
@@ -270,8 +252,7 @@ func TestNoArgs(t *testing.T) {
 
 // Snapshot test: verify no read command modifies the filesystem.
 func TestSnapshot_ReadCommands(t *testing.T) {
-	root := findModuleRoot(t)
-	fixtureDir := filepath.Join(root, "testdata", "hq")
+	fixtureDir := filepath.Join(testutil.ModuleRoot(), "testdata", "hq")
 
 	// Compute pre-snapshot.
 	preSnapshot := hashFiles(t, fixtureDir)
@@ -281,8 +262,10 @@ func TestSnapshot_ReadCommands(t *testing.T) {
 	runHQ(t, []string{"health"})
 	runHQ(t, []string{"context"})
 	runHQ(t, []string{"get", "--collection", "projects", "--id", "example"})
+	runHQ(t, []string{"get", "--path", "projects/example/README.md"})
 	runHQ(t, []string{"list", "--collection", "projects"})
 	runHQ(t, []string{"search", "--query", "HQ"})
+	runHQ(t, []string{"search", "--query", "working", "--collection", "current-work"})
 
 	// Compute post-snapshot.
 	postSnapshot := hashFiles(t, fixtureDir)
