@@ -1,0 +1,4 @@
+interface:
+  display_name: "Check HQ Project Status"
+  short_description: "Check project status using repository evidence"
+  default_prompt: "Use $check-hq-project-status to report current progress, risks, decisions, and manager help needed."

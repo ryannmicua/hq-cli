@@ -8,6 +8,16 @@
 4. Read the master plan and the one active phase plan referenced in the status ledger.
 5. Update the status ledger as work progresses; do not reconstruct status at the end.
 
+## Check HQ Project Status
+
+- When HQ asks to check this project's status, use the `check-hq-project-status` skill.
+- Treat `implementation/STATUS.md` as the durable delivery record and compare it with live Git and repository evidence.
+- Report candidly, state uncertainty and unverified checks, and surface decisions or help needed.
+- A read-only status check must not edit files, install dependencies, run write-producing verification, create commits, change branches, or contact external systems.
+- This repository remains authoritative for implementation, verification, and delivery evidence.
+- HQ remains authoritative for mandate, priority, approvals, assistance, acceptance, and portfolio state.
+- A project-status report is evidence for HQ review; it does not automatically change either repository.
+
 ## Delivery Rules
 
 - Keep the `hq` command contract shell-neutral and consistent across Windows, Linux, and macOS.

@@ -46,6 +46,12 @@ Delivery documents and executor plans are present and awaiting final review. No 
 
 Source, schemas, tests, installers, CI, and release automation will be added only through the approved phase plans.
 
+## Check HQ Project Status
+
+HQ can request a read-only, evidence-backed project-status report using the `check-hq-project-status` repository skill. The status check compares `implementation/STATUS.md` with Git and relevant repository evidence, then returns progress, health, risks, decisions, and help needed.
+
+This repository remains authoritative for implementation and delivery evidence. HQ remains authoritative for management decisions and acceptance. The status check modifies neither side.
+
 ## Source Context
 
 - HQ tracking project: `C:\Users\rmicua\hq\projects\hq-cli\`
