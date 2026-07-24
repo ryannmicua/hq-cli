@@ -80,11 +80,11 @@ func TestLoad_FromCurrentDir(t *testing.T) {
 	}
 	// Compare against os.Getwd (which config.Load uses internally),
 	// not t.TempDir, because on Windows the temp dir may use 8.3
-	// short names while os.Getwd returns the long form.
+	// short names that t.TempDir and os.Getwd resolve differently.
 	wd, _ := os.Getwd()
-	wd, _ = filepath.EvalSymlinks(wd)
-	if cfg.Root != filepath.Clean(wd) {
-		t.Fatalf("Root = %q, want %q", cfg.Root, filepath.Clean(wd))
+	wd = filepath.Clean(wd)
+	if cfg.Root != wd {
+		t.Fatalf("Root = %q, want %q", cfg.Root, wd)
 	}
 }
 
