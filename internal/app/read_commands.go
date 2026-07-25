@@ -199,7 +199,6 @@ func handleSearch(ctx context.Context, args []string, svc *read.Service, stdout,
 	return writeResult(stdout, r)
 }
 
-
 func writeResult(stdout io.Writer, r contract.Result) int {
 	if err := contract.WriteJSON(stdout, r); err != nil {
 		return 70
