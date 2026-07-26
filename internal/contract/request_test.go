@@ -506,6 +506,30 @@ func TestValidateRequestValidDraftRecord(t *testing.T) {
 	}
 }
 
+func TestValidateRequestIDValid(t *testing.T) {
+	if err := contract.ValidateRequestID("018f0000-0000-7000-8000-000000000001"); err != nil {
+		t.Fatalf("expected no error for valid UUID, got: %v", err)
+	}
+}
+
+func TestValidateRequestIDInvalid(t *testing.T) {
+	if err := contract.ValidateRequestID("not-a-uuid"); err == nil {
+		t.Fatal("expected error for non-UUID string")
+	}
+}
+
+func TestValidateRequestIDUppercase(t *testing.T) {
+	if err := contract.ValidateRequestID("018F0000-0000-7000-8000-000000000001"); err == nil {
+		t.Fatal("expected error for uppercase UUID")
+	}
+}
+
+func TestValidateRequestIDEmpty(t *testing.T) {
+	if err := contract.ValidateRequestID(""); err == nil {
+		t.Fatal("expected error for empty ID")
+	}
+}
+
 func TestValidateRequestValidCurrentWorkUpdate(t *testing.T) {
 	req := validRequest()
 	req.Operation = "current-work-update"

@@ -194,7 +194,7 @@ func ValidateRequest(req Request) error {
 	if req.RequestID == "" {
 		return fmt.Errorf("HQ_INVALID_REQUEST: requestId is required")
 	}
-	if err := validateRequestID(req.RequestID); err != nil {
+	if err := ValidateRequestID(req.RequestID); err != nil {
 		return err
 	}
 	if req.Caller.Name == "" {
@@ -227,7 +227,7 @@ func ValidateRequest(req Request) error {
 	return nil
 }
 
-func validateRequestID(id string) error {
+func ValidateRequestID(id string) error {
 	parts := strings.Split(id, "-")
 	if len(parts) != 5 {
 		return fmt.Errorf("HQ_INVALID_REQUEST: requestId %q is not a valid UUID (8-4-4-4-12)", id)

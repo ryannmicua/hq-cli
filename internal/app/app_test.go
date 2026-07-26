@@ -367,6 +367,23 @@ func TestSubmit_MissingFlag(t *testing.T) {
 	}
 }
 
+func TestSubmit_OversizedFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "large.json")
+	large := make([]byte, 2<<20) // 2 MiB
+	if err := os.WriteFile(path, large, 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	_, stderr, code := runHQ(t, []string{"submit", "--request", path})
+	if code != 4 {
+		t.Fatalf("exit code = %d, want 4; stderr: %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "too large") && !strings.Contains(stderr, "HQ_INVALID_REQUEST") {
+		t.Fatalf("expected size limit error, got: %s", stderr)
+	}
+}
+
 func TestSubmit_NonexistentFile(t *testing.T) {
 	stdout, stderr, code := runHQ(t, []string{"submit", "--request", "C:\\nonexistent\\file.json"})
 	if code != 3 {

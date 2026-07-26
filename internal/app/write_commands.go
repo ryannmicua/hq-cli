@@ -28,6 +28,8 @@ func (s *WriteService) Store() *write.RequestStore {
 	return s.store
 }
 
+const maxRequestSize = 1 << 20 // 1 MiB
+
 func handleSubmit(ctx context.Context, args []string, writeSvc *WriteService, stdout, stderr io.Writer) int {
 	flags, _ := parseFlags(args)
 
@@ -37,12 +39,26 @@ func handleSubmit(ctx context.Context, args []string, writeSvc *WriteService, st
 		return writeResult(stdout, r)
 	}
 
-	data, err := os.ReadFile(requestFile)
+	info, err := os.Stat(requestFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			r := contract.NewError("submit", contract.ErrDetail(contract.CodeNotFound, fmt.Sprintf("request file not found: %s", requestFile), false, nil))
 			return writeResult(stdout, r)
 		}
+		if os.IsPermission(err) {
+			r := contract.NewError("submit", contract.ErrDetail(contract.CodePermissionDenied, fmt.Sprintf("cannot stat request file: %s", requestFile), false, nil))
+			return writeResult(stdout, r)
+		}
+		r := contract.NewError("submit", contract.ErrDetail(contract.CodeInternalError, fmt.Sprintf("stat request file: %v", err), false, nil))
+		return writeResult(stdout, r)
+	}
+	if info.Size() > maxRequestSize {
+		r := contract.NewError("submit", contract.ErrDetail(contract.CodeInvalidRequest, fmt.Sprintf("request file too large: %d bytes (max %d)", info.Size(), maxRequestSize), false, nil))
+		return writeResult(stdout, r)
+	}
+
+	data, err := os.ReadFile(requestFile)
+	if err != nil {
 		if os.IsPermission(err) {
 			r := contract.NewError("submit", contract.ErrDetail(contract.CodePermissionDenied, fmt.Sprintf("cannot read request file: %s", requestFile), false, nil))
 			return writeResult(stdout, r)
@@ -61,23 +77,18 @@ func handleSubmit(ctx context.Context, args []string, writeSvc *WriteService, st
 
 	status, err := writeSvc.store.Submit(req)
 	if err != nil {
-		code := contract.CodeInternalError
 		msg := err.Error()
-
-		if isErrorCode(msg, contract.CodeInvalidRequest) {
-			code = contract.CodeInvalidRequest
-		} else if isErrorCode(msg, contract.CodePolicyDenied) {
-			code = contract.CodePolicyDenied
-		} else if isErrorCode(msg, contract.CodeNotFound) {
-			code = contract.CodeNotFound
-		} else if isErrorCode(msg, contract.CodePermissionDenied) {
-			code = contract.CodePermissionDenied
-		} else if isErrorCode(msg, contract.CodeUnsupportedFS) {
-			code = contract.CodeUnsupportedFS
-		} else if isErrorCode(msg, contract.CodeWriteInterrupted) {
-			code = contract.CodeWriteInterrupted
+		code := classifyError(msg, []string{
+			contract.CodeInvalidRequest,
+			contract.CodePolicyDenied,
+			contract.CodeNotFound,
+			contract.CodePermissionDenied,
+			contract.CodeUnsupportedFS,
+			contract.CodeWriteInterrupted,
+		})
+		if code == "" {
+			code = contract.CodeInternalError
 		}
-
 		r := contract.NewError("submit", contract.ErrDetail(code, msg, false, nil))
 		return writeResult(stdout, r)
 	}
@@ -104,15 +115,14 @@ func handleStatus(ctx context.Context, args []string, writeSvc *WriteService, st
 
 	status, err := writeSvc.store.Status(requestID)
 	if err != nil {
-		code := contract.CodeInternalError
 		msg := err.Error()
-
-		if isErrorCode(msg, contract.CodeNotFound) {
-			code = contract.CodeNotFound
-		} else if isErrorCode(msg, contract.CodeInvalidRequest) {
-			code = contract.CodeInvalidRequest
+		code := classifyError(msg, []string{
+			contract.CodeNotFound,
+			contract.CodeInvalidRequest,
+		})
+		if code == "" {
+			code = contract.CodeInternalError
 		}
-
 		r := contract.NewError("status", contract.ErrDetail(code, msg, false, nil))
 		return writeResult(stdout, r)
 	}
@@ -128,5 +138,13 @@ func handleStatus(ctx context.Context, args []string, writeSvc *WriteService, st
 }
 
 func isErrorCode(msg, code string) bool {
-	return strings.HasPrefix(msg, code+":") || strings.HasPrefix(msg, code)
+	return strings.HasPrefix(msg, code+":")
 }
+
+func classifyError(msg string, codes []string) string {
+	for _, code := range codes {
+		if isErrorCode(msg, code) {
+			return code
+		}
+	}
+	return ""

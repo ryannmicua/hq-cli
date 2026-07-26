@@ -115,7 +115,7 @@ func (rs *RequestStore) Submit(req contract.Request) (contract.RequestStatus, er
 	}
 
 	existing, err := rs.findRequest(req.RequestID)
-	if err == nil && existing != "" {
+	if err == nil {
 		return rs.buildStatusFromFile(existing)
 	}
 
@@ -149,16 +149,7 @@ func (rs *RequestStore) Submit(req contract.Request) (contract.RequestStatus, er
 }
 
 func (rs *RequestStore) Status(id string) (contract.RequestStatus, error) {
-	if err := contract.ValidateRequest(contract.Request{
-		SchemaVersion:      "1.0",
-		RequestID:          id,
-		Caller:             contract.Caller{Name: "internal"},
-		Purpose:            "status lookup",
-		Operation:          "project-check-in",
-		Target:             "dummy",
-		Payload:            []byte(`{}`),
-		ExpectedTargetHash: "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
-	}); err != nil {
+	if err := contract.ValidateRequestID(id); err != nil {
 		return contract.RequestStatus{}, err
 	}
 
@@ -168,9 +159,6 @@ func (rs *RequestStore) Status(id string) (contract.RequestStatus, error) {
 			return contract.RequestStatus{}, fmt.Errorf("HQ_NOT_FOUND: request %q not found", id)
 		}
 		return contract.RequestStatus{}, fmt.Errorf("HQ_INTERNAL_ERROR: find request: %w", err)
-	}
-	if foundPath == "" {
-		return contract.RequestStatus{}, fmt.Errorf("HQ_NOT_FOUND: request %q not found", id)
 	}
 
 	return rs.buildStatusFromFile(foundPath)
@@ -185,7 +173,7 @@ func (rs *RequestStore) findRequest(id string) (string, error) {
 			return filePath, nil
 		}
 	}
-	return "", nil
+	return "", os.ErrNotExist
 }
 
 func (rs *RequestStore) buildStatusFromFile(path string) (contract.RequestStatus, error) {
