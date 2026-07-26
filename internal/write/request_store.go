@@ -232,5 +232,3 @@ func stateFromPath(path string) contract.RequestState {
 		return contract.StatePending
 	}
 }
-
-

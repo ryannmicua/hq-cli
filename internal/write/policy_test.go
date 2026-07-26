@@ -136,8 +136,8 @@ func TestGlobStarMatchesMultiDepth(t *testing.T) {
 	}
 
 	class, _ = p.Classify("project-check-in", "projects/foo/STATE.md")
-	if class != write.PolicyAllowed {
-		t.Fatalf("expected allowed for non-identity path, got %q", class)
+	if class != write.PolicyDenied {
+		t.Fatalf("expected denied (default) for non-matching path, got %q", class)
 	}
 }
 
