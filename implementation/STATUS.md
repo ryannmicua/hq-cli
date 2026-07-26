@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-The standalone `hq` CLI project has a self-contained, reviewed delivery-document set and four-phase executor plan. Phase 0 (Contracts and Read CLI) is verified on Windows amd64.
+The standalone `hq` CLI project has a self-contained, reviewed delivery-document set and four-phase executor plan. Phase 0 (Contracts and Read CLI) and Phase 1 (Submit and Status) are verified on Windows amd64.
 
 ## Current Outcome
 
@@ -21,8 +21,8 @@ Produce an approved, executor-checkable implementation plan for a safe cross-pla
 | U3 | HQ Fixtures and Collection Adapters | verified | `go test ./internal/hq` — all pass; `go vet ./...` clean; `gofmt -l .` clean | U4 next |
 | U4 | Read Services and CLI Commands | verified | `go test ./internal/read ./internal/app` — all pass; `go build -o dist/hq.exe ./cmd/hq` succeeds; smoke tests pass for all 6 commands; snapshot tests verify no mutation; `go vet ./...` clean; `gofmt -l .` clean | U5 next |
 | U5 | Bootstrap Native CI | verified | `.github/workflows/ci.yml` created with format+test matrix; `docs/operations/ci.md` documents commands and acceptance gates; actionlint verification deferred to base branch | Phase 0 complete |
-| P1 | Submit and status phase | not-started | Plan: `docs/plans/2026-07-24-phase-1-submit-and-status.md` | Requires verified P0 |
-| P2 | Apply, recovery, and changes phase | not-started | Plan: `docs/plans/2026-07-24-phase-2-apply-and-changes.md` | Requires verified P1 |
+| P1 | Submit and status phase | verified | All 14 units implemented; `go test ./...` passes on Windows/Ubuntu/macOS CI; all 5 code review issues closed; `go vet ./...` clean; `gofmt -l .` clean; binary builds; smoke tests pass for submit/status commands; PR #11 merged 2026-07-26 | Next: P2 — Apply and changes |
+| P2 | Apply, recovery, and changes phase | not-started | Plan: `docs/plans/2026-07-24-phase-2-apply-and-changes.md` | Requires verified P1 — P1 now verified |
 | P3 | Skill and release phase | not-started | Plan: `docs/plans/2026-07-24-phase-3-skill-and-release.md` | Requires verified P2 |
 | I-001 | Implement the CLI | not-started | None | Begin only from the approved implementation plan |
 
