@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryannmicua/hq-cli/schemas/operations/project-check-in-v1.json",
+  "title": "Project Check-In",
+  "description": "Payload for the project-check-in operation. Updates an existing project STATE.md with structured fields.",
+  "type": "object",
+  "required": ["summary", "currentState", "nextAction"],
+  "properties": {
+    "summary": { "type": "string" },
+    "currentOutcome": { "type": "string" },
+    "currentState": { "type": "string" },
+    "nextAction": { "type": "string" },
+    "blockers": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "risks": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "verifiedAt": { "type": "string" }
+  },
+  "additionalProperties": false
+}

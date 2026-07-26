@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryannmicua/hq-cli/schemas/request-v1.json",
+  "title": "HQ CLI Request Envelope",
+  "description": "Version 1.0 request envelope for submit and status commands.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "requestId",
+    "caller",
+    "purpose",
+    "operation",
+    "target",
+    "payload"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Schema version of the request.",
+      "enum": ["1.0"]
+    },
+    "requestId": {
+      "type": "string",
+      "description": "RFC 9562 UUID v4 or v7 in lowercase 8-4-4-4-12 form.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "caller": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "sessionId": { "type": "string" }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "operation": {
+      "type": "string",
+      "enum": ["project-check-in", "session-entry", "draft-record", "current-work-update"]
+    },
+    "target": {
+      "type": "string",
+      "description": "Relative logical path within the HQ root."
+    },
+    "payload": {
+      "type": "object"
+    },
+    "submittedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expectedTargetHash": {
+      "type": "string",
+      "description": "SHA-256 hex of the expected target content (64 hex chars).",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "createOnly": {
+      "type": "boolean",
+      "description": "When true, the target must not exist."
+    },
+    "approvalReference": {
+      "type": ["string", "null"]
+    }
+  },
+  "oneOf": [
+    { "required": ["expectedTargetHash"] },
+    { "required": ["createOnly"] }
+  ],
+  "additionalProperties": false
+}

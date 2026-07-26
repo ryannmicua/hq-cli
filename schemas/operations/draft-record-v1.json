@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryannmicua/hq-cli/schemas/operations/draft-record-v1.json",
+  "title": "Draft Record",
+  "description": "Payload for the draft-record operation. Creates a new markdown draft under an allowed destination.",
+  "type": "object",
+  "required": ["title", "body", "recordDate", "classification"],
+  "properties": {
+    "title": { "type": "string" },
+    "body": { "type": "string" },
+    "recordDate": { "type": "string" },
+    "classification": {
+      "type": "string",
+      "enum": ["inbox", "draft", "review", "archive"]
+    }
+  },
+  "additionalProperties": false
+}

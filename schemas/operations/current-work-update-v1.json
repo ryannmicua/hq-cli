@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryannmicua/hq-cli/schemas/operations/current-work-update-v1.json",
+  "title": "Current Work Update",
+  "description": "Payload for the current-work-update operation. Updates one named CURRENT-WORK.md entry.",
+  "type": "object",
+  "required": ["workName", "lastTouched"],
+  "properties": {
+    "workName": { "type": "string" },
+    "workspace": { "type": "string" },
+    "loadFirst": { "type": "string" },
+    "supportingContext": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "currentOutcome": { "type": "string" },
+    "currentState": { "type": "string" },
+    "nextAction": { "type": "string" },
+    "lastTouched": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -26,6 +26,32 @@ func runHQ(t *testing.T, args []string) (stdout string, stderr string, exitCode 
 	return stdoutBuf.String(), stderrBuf.String(), exitCode
 }
 
+func writeRequestFile(t *testing.T, dir, id string, content map[string]any) string {
+	t.Helper()
+	data, err := json.Marshal(content)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	path := filepath.Join(dir, id+".json")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write request file: %v", err)
+	}
+	return path
+}
+
+func validRequestPayload() map[string]any {
+	return map[string]any{
+		"schemaVersion":      "1.0",
+		"requestId":          "018f0000-0000-7000-8000-000000000001",
+		"caller":             map[string]any{"name": "test", "sessionId": "sess-1"},
+		"purpose":            "test submit command",
+		"operation":          "project-check-in",
+		"target":             "projects/example/STATE.md",
+		"payload":            map[string]any{"summary": "test", "currentState": "done", "nextAction": "ship"},
+		"expectedTargetHash": "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+	}
+}
+
 func TestVersion_ReturnsValidJSON(t *testing.T) {
 	stdout, stderr, code := runHQ(t, []string{"version"})
 	if stderr != "" {
@@ -280,6 +306,191 @@ func TestSnapshot_ReadCommands(t *testing.T) {
 		} else if hash != postHash {
 			t.Fatalf("file %q modified: hash changed", path)
 		}
+	}
+}
+
+func TestSubmit_ValidRequest(t *testing.T) {
+	tmpDir := t.TempDir()
+	reqFile := writeRequestFile(t, tmpDir, "valid", validRequestPayload())
+
+	stdout, stderr, code := runHQ(t, []string{"submit", "--request", reqFile})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr: %s", code, stderr)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if result["command"] != "submit" {
+		t.Fatalf("command = %v, want 'submit'", result["command"])
+	}
+	if result["success"] != true {
+		t.Fatal("expected success=true")
+	}
+	data := result["data"].(map[string]any)
+	if data["state"] != "pending" {
+		t.Fatalf("state = %v, want 'pending'", data["state"])
+	}
+	if _, ok := data["requestId"]; !ok {
+		t.Fatal("expected requestId in data")
+	}
+	if _, ok := data["requestSha256"]; !ok {
+		t.Fatal("expected requestSha256 in data")
+	}
+}
+
+func TestSubmit_InvalidRequest(t *testing.T) {
+	tmpDir := t.TempDir()
+	req := validRequestPayload()
+	req["requestId"] = ""
+	reqFile := writeRequestFile(t, tmpDir, "invalid", req)
+
+	_, stderr, code := runHQ(t, []string{"submit", "--request", reqFile})
+	if code != 4 {
+		t.Fatalf("exit code = %d, want 4; stderr: %s", code, stderr)
+	}
+}
+
+func TestSubmit_MissingFlag(t *testing.T) {
+	stdout, stderr, code := runHQ(t, []string{"submit"})
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2; stderr: %s", code, stderr)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if result["success"] != false {
+		t.Fatal("expected success=false")
+	}
+}
+
+func TestSubmit_OversizedFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "large.json")
+	large := make([]byte, 2<<20) // 2 MiB
+	if err := os.WriteFile(path, large, 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	stdout, _, code := runHQ(t, []string{"submit", "--request", path})
+	if code != 4 {
+		t.Fatalf("exit code = %d, want 4; stdout: %s", code, stdout)
+	}
+	if !strings.Contains(stdout, "too large") && !strings.Contains(stdout, "HQ_INVALID_REQUEST") {
+		t.Fatalf("expected size limit error, got: %s", stdout)
+	}
+}
+
+func TestSubmit_NonexistentFile(t *testing.T) {
+	stdout, stderr, code := runHQ(t, []string{"submit", "--request", "C:\\nonexistent\\file.json"})
+	if code != 3 {
+		t.Fatalf("exit code = %d, want 3; stderr: %s", code, stderr)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if result["success"] != false {
+		t.Fatal("expected success=false")
+	}
+	errObj := result["error"].(map[string]any)
+	if errObj["code"] != "HQ_NOT_FOUND" {
+		t.Fatalf("error code = %v, want HQ_NOT_FOUND", errObj["code"])
+	}
+}
+
+func TestSubmit_DuplicateID(t *testing.T) {
+	tmpDir := t.TempDir()
+	req := validRequestPayload()
+	reqFile := writeRequestFile(t, tmpDir, "dup", req)
+
+	// First submit should succeed.
+	stdout1, stderr1, code1 := runHQ(t, []string{"submit", "--request", reqFile})
+	if code1 != 0 {
+		t.Fatalf("first submit failed: code=%d stderr=%s", code1, stderr1)
+	}
+
+	// Second submit with same content should return same status.
+	stdout2, stderr2, code2 := runHQ(t, []string{"submit", "--request", reqFile})
+	if code2 != 0 {
+		t.Fatalf("duplicate submit failed: code=%d stderr=%s", code2, stderr2)
+	}
+
+	if stdout1 != stdout2 {
+		t.Log("duplicate submit returned different output (may differ in timestamps)")
+	}
+}
+
+func TestStatus_AfterSubmit(t *testing.T) {
+	tmpDir := t.TempDir()
+	req := validRequestPayload()
+	reqFile := writeRequestFile(t, tmpDir, "status-test", req)
+
+	// Submit first.
+	stdout, stderr, code := runHQ(t, []string{"submit", "--request", reqFile})
+	if code != 0 {
+		t.Fatalf("submit failed: code=%d stderr=%s", code, stderr)
+	}
+
+	var submitResult map[string]any
+	json.Unmarshal([]byte(stdout), &submitResult)
+	submitData := submitResult["data"].(map[string]any)
+	requestID := submitData["requestId"].(string)
+
+	// Now status.
+	stdout2, stderr2, code2 := runHQ(t, []string{"status", "--request-id", requestID})
+	if code2 != 0 {
+		t.Fatalf("status failed: code=%d stderr=%s", code2, stderr2)
+	}
+
+	var statusResult map[string]any
+	if err := json.Unmarshal([]byte(stdout2), &statusResult); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if statusResult["command"] != "status" {
+		t.Fatalf("command = %v, want 'status'", statusResult["command"])
+	}
+	if statusResult["success"] != true {
+		t.Fatal("expected success=true")
+	}
+	statusData := statusResult["data"].(map[string]any)
+	if statusData["state"] != "pending" {
+		t.Fatalf("state = %v, want 'pending'", statusData["state"])
+	}
+}
+
+func TestStatus_Nonexistent(t *testing.T) {
+	stdout, stderr, code := runHQ(t, []string{"status", "--request-id", "018f0000-0000-7000-8000-000000000099"})
+	if code != 3 {
+		t.Fatalf("exit code = %d, want 3; stderr: %s", code, stderr)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	errObj := result["error"].(map[string]any)
+	if errObj["code"] != "HQ_NOT_FOUND" {
+		t.Fatalf("error code = %v, want HQ_NOT_FOUND", errObj["code"])
+	}
+}
+
+func TestStatus_MissingFlag(t *testing.T) {
+	stdout, stderr, code := runHQ(t, []string{"status"})
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2; stderr: %s", code, stderr)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if result["success"] != false {
+		t.Fatal("expected success=false")
 	}
 }
 

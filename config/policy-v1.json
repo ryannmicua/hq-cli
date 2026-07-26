@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "1.0",
+  "rules": [
+    {
+      "operation": "project-check-in",
+      "targetPattern": "projects/*/STATE.md",
+      "class": "allowed"
+    },
+    {
+      "operation": "session-entry",
+      "targetPattern": "SESSION-LOG.md",
+      "class": "allowed"
+    },
+    {
+      "operation": "current-work-update",
+      "targetPattern": "CURRENT-WORK.md",
+      "class": "allowed"
+    },
+    {
+      "operation": "draft-record",
+      "targetPattern": "projects/*/*.md",
+      "class": "allowed"
+    },
+    {
+      "operation": "*",
+      "targetPattern": "identity/**",
+      "class": "denied"
+    },
+    {
+      "operation": "*",
+      "targetPattern": "templates/**",
+      "class": "denied"
+    },
+    {
+      "operation": "*",
+      "targetPattern": "decisions/**",
+      "class": "denied"
+    },
+    {
+      "operation": "*",
+      "targetPattern": "people/**",
+      "class": "denied"
+    },
+    {
+      "operation": "*",
+      "targetPattern": "references/**",
+      "class": "denied"
+    },
+    {
+      "operation": "*",
+      "targetPattern": "work-types/**",
+      "class": "denied"
+    },
+    {
+      "operation": "*",
+      "targetPattern": "AGENTS.md",
+      "class": "denied"
+    },
+    {
+      "operation": "*",
+      "targetPattern": "safety-boundaries.md",
+      "class": "denied"
+    }
+  ],
+  "defaultClass": "denied"
+}
