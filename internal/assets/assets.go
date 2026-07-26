@@ -9,3 +9,8 @@ import _ "embed"
 //
 //go:embed schemas/result-v1.json
 var ResultSchemaV1 []byte
+
+// PolicyV1 is the embedded bytes of the default write policy.
+//
+//go:embed policy-v1.json
+var PolicyV1 []byte

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryannmicua/hq-cli/schemas/operations/session-entry-v1.json",
+  "title": "Session Entry",
+  "description": "Payload for the session-entry operation. Prepends a validated line to SESSION-LOG.md.",
+  "type": "object",
+  "required": ["timestamp", "tags", "summary"],
+  "properties": {
+    "timestamp": { "type": "string" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "summary": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -1,5 +1,6 @@
 // Package app implements the CLI dispatcher. Phase 0 handles read-only
-// commands: version, health, context, get, list, and search.
+// commands: version, health, context, get, list, and search. Phase 1 adds
+// submit and status commands.
 package app
 
 import (
@@ -9,9 +10,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ryannmicua/hq-cli/internal/assets"
 	"github.com/ryannmicua/hq-cli/internal/config"
 	"github.com/ryannmicua/hq-cli/internal/contract"
 	"github.com/ryannmicua/hq-cli/internal/read"
+	"github.com/ryannmicua/hq-cli/internal/write"
 )
 
 // Run parses args, dispatches to the appropriate command handler, writes
@@ -75,13 +78,17 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return contract.ExitCode(errDetail.Code)
 	}
 
-	return dispatchCommand(cmd, cmdArgs, svc, stdout, stderr)
+	// Create write service for submit/status commands.
+	policy, _ := write.ParsePolicyJSON(assets.PolicyV1)
+	writeSvc := NewWriteService(cfg.Root, policy)
+
+	return dispatchCommand(cmd, cmdArgs, svc, writeSvc, stdout, stderr)
 }
 
 // envLookup wraps os.LookupEnv for the config package.
 var envLookup = os.LookupEnv
 
-func dispatchCommand(cmd string, args []string, svc *read.Service, stdout, stderr io.Writer) int {
+func dispatchCommand(cmd string, args []string, svc *read.Service, writeSvc *WriteService, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 
 	switch cmd {
@@ -97,6 +104,10 @@ func dispatchCommand(cmd string, args []string, svc *read.Service, stdout, stder
 		return handleList(ctx, args, svc, stdout, stderr)
 	case "search":
 		return handleSearch(ctx, args, svc, stdout, stderr)
+	case "submit":
+		return handleSubmit(ctx, args, writeSvc, stdout, stderr)
+	case "status":
+		return handleStatus(ctx, args, writeSvc, stdout, stderr)
 	default:
 		_, _ = stderr.Write([]byte(fmt.Sprintf("hq: unknown command: %s\n", cmd)))
 		_ = contract.WriteJSON(stdout, contract.NewError(cmd, contract.ErrDetail(contract.CodeInvalidArgument, fmt.Sprintf("unknown command: %s", cmd), false, nil)))
