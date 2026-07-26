@@ -399,7 +399,11 @@ func parseSections(content string) map[string]string {
 		// Detect entries within a section.
 		if strings.HasPrefix(trimmed, "### ") && currentSection != "" {
 			entry := strings.TrimSpace(strings.TrimPrefix(trimmed, "###"))
-			result[currentSection] = entry
+			if prev, ok := result[currentSection]; ok {
+				result[currentSection] = prev + "; " + entry
+			} else {
+				result[currentSection] = entry
+			}
 		}
 	}
 	if len(result) == 0 {
