@@ -375,12 +375,12 @@ func TestSubmit_OversizedFile(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	_, stderr, code := runHQ(t, []string{"submit", "--request", path})
+	stdout, _, code := runHQ(t, []string{"submit", "--request", path})
 	if code != 4 {
-		t.Fatalf("exit code = %d, want 4; stderr: %s", code, stderr)
+		t.Fatalf("exit code = %d, want 4; stdout: %s", code, stdout)
 	}
-	if !strings.Contains(stderr, "too large") && !strings.Contains(stderr, "HQ_INVALID_REQUEST") {
-		t.Fatalf("expected size limit error, got: %s", stderr)
+	if !strings.Contains(stdout, "too large") && !strings.Contains(stdout, "HQ_INVALID_REQUEST") {
+		t.Fatalf("expected size limit error, got: %s", stdout)
 	}
 }
 
