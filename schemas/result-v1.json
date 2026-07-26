@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryannmicua/hq-cli/schemas/result-v1.json",
+  "title": "HQ CLI Result Envelope",
+  "description": "Version 1.0 result envelope for all HQ CLI commands.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "command",
+    "success",
+    "timestamp",
+    "data",
+    "warnings",
+    "error",
+    "mutation"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Semantic version of the result schema.",
+      "enum": ["1.0"]
+    },
+    "command": {
+      "type": "string",
+      "description": "The command that produced this result."
+    },
+    "success": {
+      "type": "boolean",
+      "description": "Whether the command succeeded."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO 8601 timestamp of result emission."
+    },
+    "data": {
+      "type": ["object", "null"],
+      "description": "Command-specific data payload."
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" }
+        },
+        "required": ["code", "message"]
+      },
+      "description": "Non-fatal diagnostic messages."
+    },
+    "error": {
+      "type": ["object", "null"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "details": {
+          "type": ["object", "null"],
+          "description": "Command-specific scalar fields only."
+        },
+        "retryable": { "type": "boolean" }
+      },
+      "required": ["code", "message", "retryable"],
+      "description": "Error detail when success is false."
+    },
+    "mutation": {
+      "type": "string",
+      "enum": ["noMutation", "rolledBack", "recoveryRequired"],
+      "description": "Mutation status of the command."
+    }
+  }
+}

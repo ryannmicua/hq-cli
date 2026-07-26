@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Vet
+        run: go vet ./...
+
+  test:
+    name: Test
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Unit tests
+        run: go test ./... -v
+      - name: Race tests
+        if: matrix.os != 'windows-latest'
+        run: go test -race ./... -v
+      - name: Build
+        run: go build -o dist/hq${{ matrix.os == 'windows-latest' && '.exe' || '' }} ./cmd/hq
+      - name: Smoke test
+        run: |
+          dist/hq${{ matrix.os == 'windows-latest' && '.exe' || '' }} --root testdata/hq version
+          dist/hq${{ matrix.os == 'windows-latest' && '.exe' || '' }} --root testdata/hq health
+          dist/hq${{ matrix.os == 'windows-latest' && '.exe' || '' }} --root testdata/hq context
+          dist/hq${{ matrix.os == 'windows-latest' && '.exe' || '' }} --root testdata/hq list --collection projects
