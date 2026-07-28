@@ -201,3 +201,85 @@
 - **Backups can retain prohibited secrets** — Tasks 2.2-2.3: Backups (P2, security-lens, confidence 75)
 
   A credential already present in a target can survive its removal because apply retains the pre-write content as a backup. The plan must reconcile mandatory recoverability with the absolute prohibition on storing secrets in backups.
+
+### From 2026-07-29 review
+
+- **Receipt-cursor atomicity unspecified** — Task 2.3 / Phase Acceptance (P0, adversarial, confidence 100)
+
+  Cursor advancement and receipt creation are independent filesystem operations; crashes between them produce receipt gaps or duplicate processing that violate the no-silent-data-loss guarantee.
+
+- **Crash window during replace unanalyzed** — Task 2.3 Step 5 (P0, adversarial, confidence 100)
+
+  No recovery-state machine distinguishes pre-replace, partial-replace, and post-replace-pre-receipt states after a crash, making it impossible to determine whether to restore from backup or retry.
+
+- **Restore authorization too weak** — Task 2.4 (P0, security-lens, confidence 100)
+
+  The recover restore command authorizes destructive file overwrite by checking only that the approval-reference is non-empty; any local user who knows the command shape can restore backups without policy-engine evaluation.
+
+- **Result schema mutation enum incomplete** — Task 2.3 (P1, feasibility, confidence 100)
+
+  The result envelope constrains mutation to noMutation/rolledBack/recoveryRequired but the apply receipt contract requires "applied"; a successful authoritative mutation cannot be represented accurately.
+
+- **Approval reference exposed in process listing** — Task 2.4 (P1, security-lens, confidence 75)
+
+  The approval-reference flag passes the reference as a CLI argument visible to all local processes via ps or WMI, leaking audit data to any user on the host.
+
+- **Deterministic ordering lacks enforcement** — Task 2.4 (P1, adversarial, confidence 75)
+
+  Changes.After claims deterministic ordering but filesystem readdir does not guarantee stable order across platforms after fsck, defrag, or restore cycles; consumers experience non-deterministic behavior across reboots.
+
+- **Cursor persistence across restarts underspecified** — Phase Acceptance vs Task 2.4 (P1, coherence, confidence 75)
+
+  Phase Acceptance requires cursor polling to survive process restart without missing receipts, but no implementation step specifies how cursor state is persisted; implementers will produce incompatible designs.
+
+- **Cursor allocation ordering gap** — Tasks 2.3-2.4 (P1, feasibility, confidence 75)
+
+  Receipt carries a cursor field created in Task 2.3 but cursor allocation is not specified until Task 2.4 Step 3, leaving the Task 2.3 implementer without a mechanism for producing valid receipts.
+
+- **Read-side isolation not addressed** — Architecture (P1, adversarial, confidence 75)
+
+  Readers (status, changes, polling consumers) do not acquire the transaction lock, so concurrent reads observe partially written mutation state and produce inconsistent reporting to users.
+
+- **Backup permissions unspecified** — Task 2.2 (P1, security-lens, confidence 75)
+
+  Backups contain complete pre-mutation content with the same sensitivity as production records but have no documented owner-only creation or permission contract.
+
+- **Symlink redirection between check and mutation** — Task 2.2 (P1, security-lens, confidence 75)
+
+  Filesystem capability validation precedes lock acquisition, but an adversary with filesystem write access can swap a symlink or reparse point between check and use, redirecting mutation.
+
+- **Restore lacks target-state precondition** — Task 2.4 (P1, security-lens, confidence 75)
+
+  An approved restore can overwrite legitimate edits made between inspection and restore because approval is not bound to the target hash observed during inspect.
+
+- **Filesystem detection unreliable for mutation gating** — Task 2.2 Step 5 (P1, adversarial, confidence 75)
+
+  Statfs-based filesystem-type detection produces false negatives that silently proceed with non-atomic mutation on network filesystems, and false positives that block legitimate local use.
+
+- **Journal-based atomic write not evaluated** — Architecture (P1, adversarial, confidence 75)
+
+  The lock-backup-replace sequence has asymmetric failure modes; the standard journal-rename pattern used by database engines and package managers is not discussed or compared.
+
+- **Backup path collision on repeated applies** — Task 2.2 (P1, adversarial, confidence 75)
+
+  Apply running twice against the same target file overwrites the first backup before the second transaction completes, destroying the only usable restore point.
+
+- **Assets.go not extended for receipt schema** — Task 2.3 (P1, feasibility, confidence 75)
+
+  The plan creates internal/assets/schemas/receipt-v1.json but does not add the go:embed directive or exported variable following the established Phase-1 embed pattern.
+
+- **FS.Capabilities return type undefined** — Task 2.2 (P1, feasibility, confidence 75)
+
+  The interface method FS.Capabilities returns a Capabilities type that is never defined; implementers will produce incompatible struct definitions that shape the FS adapter contract.
+
+- **Ambiguous implementer reference** — Task 2.3 Step 5 (P2, coherence, confidence 75)
+
+  Other steps name specific contract documents for reference, but Task 2.3 Step 5 says "exactly as documented" without naming which document is authoritative.
+
+- **Stale lock after crash not handled** — Task 2.2 (P3, adversarial, confidence 50)
+
+  Filesystem lock files survive process crashes; without lock-file content conventions and timeout-based staleness checks, a restarted CLI refuses to operate with no documented recovery procedure.
+
+- **Renderer contract unreviewed** — Task 2.1 (P3, adversarial, confidence 50)
+
+  Renderers implement the hq-markdown.md contract, but the contract itself is not validated within this plan's scope; golden tests reify specification errors, making them harder to detect later.
