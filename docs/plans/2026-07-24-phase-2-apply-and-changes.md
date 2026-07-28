@@ -4,7 +4,7 @@
 
 **Goal:** Apply authorized typed requests without silent data loss, emit immutable receipts, support recovery, and expose durable cursor-based change discovery.
 
-**Architecture:** Renderers transform validated typed payloads into complete target content. The transaction engine runs under a target lock and owns hash recheck, backup, replacement, verification, receipt, and state transition. Change polling reads monotonic receipt cursors.
+**Architecture:** Renderers transform validated typed payloads into complete target content. The transaction engine runs under a target lock and owns hash recheck, backup, replacement, verification, receipt, and state transition. A durable intent file (write-ahead journal) is written before any mutation and removed after receipt publication; orphaned intents are reconciled on restart. Change polling reads monotonic receipt cursors from cursor-encoded receipt filenames.
 
 **Tech Stack:** Go standard library, platform-specific locking and replace primitives behind `fsx.FS`, existing request and policy packages, Go race detector and injectable filesystem failures.
 
@@ -33,7 +33,9 @@
 
 **Rollback:** Remove Task 2.1 renderers and golden outputs; the submit-only Phase 1 CLI remains operational.
 
-- [ ] **Step 1: Write golden failing tests from `docs/contracts/hq-markdown.md` for each typed operation and preservation tests for unrelated current-work entries and project-state sections.**
+- [ ] **Step 1: Validate `docs/contracts/hq-markdown.md` assumptions by writing assertion tests against the existing fixture data (in `testdata/hq/`) that confirm section order, owned-section content, and unknown-section preservation behavior. Then write golden failing tests from the same contract for each typed operation and preservation tests for unrelated current-work entries and project-state sections.**
+- [ ] **Step 1b: Fix payload type contracts to match hq-markdown.md: restrict `DraftRecord.Classification` to only `"inbox"`, `"project-report"`, `"project-source"` (remove `"draft"`, `"review"`, `"archive"`); add `Section` field to `CurrentWorkUpdate` for distinguishing `"Active"` from `"Warm"` entry creation; use `json.NewDecoder` with `DisallowUnknownFields()` in all payload parsing to reject unknown fields.**
+- [ ] **Step 1c: Fix draft-record policy rules in `config/policy-v1.json`, `internal/assets/policy-v1.json`, and `internal/write/policy_test.go`: replace `draft-record` → `projects/*/*.md` (allowed) with three rules — `inbox/*.md` (allowed), `projects/*/reports/*.md` (allowed), and `projects/*/source/*.md` (allowed). Remove the broad `projects/*/*.md` rule.**
 - [ ] **Step 2: Add rejection tests for embedded newlines in session fields, existing draft targets, malformed current records, and target-operation mismatch.**
 - [ ] **Step 3: Run `go test ./internal/write`; verify failures identify missing renderers.**
 - [ ] **Step 4: Implement deterministic complete-file rendering without executing markdown content.**
@@ -51,26 +53,27 @@
 - Create: `internal/fsx/transaction_contract_test.go`
 
 **Interfaces:**
-- Produces: `FS.Lock(ctx context.Context, target string, timeout time.Duration) (UnlockFunc, error)`.
-- Produces: `FS.Backup(target, backup string) (sha256 string, error)`.
+- Produces: `FS.Lock(ctx context.Context, target string, timeout time.Duration, exclusive bool) (UnlockFunc, error)`. Read commands acquire a shared (non-exclusive) lock to avoid observing partial write state; write transactions acquire an exclusive lock that excludes both other writers and readers.
+- Produces: `FS.Backup(target, backup string) (sha256 string, error)`. Backup files must be created with owner-only permissions (0600 POSIX, equivalent Windows DACL). Backup paths must incorporate the request ID (e.g., `.hq-interface/backups/<target-slug>-<request-id>.bak`) so repeated applies never collide; old backups may be cleaned up by subsequent successful transactions on the same target.
 - Produces: `FS.ReplaceDurable(temp, target string) error`.
-- Produces: `FS.Capabilities(root string) (Capabilities, error)`.
+- Produces: `FS.Capabilities(root string) (Capabilities, error)`. `Capabilities` is a struct in `internal/fsx/fs.go` with fields: `SupportAtomicReplace bool`, `SupportFileLocking bool`, `FilesystemType string` (`"ntfs"`, `"ext4"`, `"apfs"`, `"network"`, `"unknown"`), `RootPath string`, and `SupportOwnerOnlyPermissions bool`. All fields are populated during the probe-write step.
 
 **Rollback:** Remove Task 2.2 adapter extensions and restore the Phase 1 durable-request filesystem interface; do not touch real runtime data.
 
-- [ ] **Step 1: Write one adapter contract suite for exclusivity, timeout, backup hash, durable replace, cleanup, and unsupported filesystem behavior.**
+- [ ] **Step 1: Write one adapter contract suite for exclusivity, timeout, backup hash, durable backup sync (backup file + parent directory must be fsynced before replacement), durable replace, cleanup, and unsupported filesystem behavior.**
 - [ ] **Step 2: Run the suite on the current platform and verify failures for absent methods.**
-- [ ] **Step 3: Implement POSIX locking and rename semantics behind build constraints, including file and parent-directory synchronization.**
-- [ ] **Step 4: Implement Windows locking and replacement using Windows APIs rather than assuming POSIX rename semantics.**
-- [ ] **Step 5: Add network/unknown filesystem detection that returns `HQ_UNSUPPORTED_FILESYSTEM` before mutation.**
-- [ ] **Step 6: Run native NTFS, ext4, and APFS jobs; record filesystem and OS evidence separately.**
+- [ ] **Step 3: Implement POSIX locking and rename semantics behind build constraints, including file and parent-directory synchronization. Support shared (`LOCK_SH`) and exclusive (`LOCK_EX`) lock modes via the `exclusive` parameter exposed in the `FS.Lock` signature. Include the acquiring process hostname, PID, and timestamp in the lock file content. On acquisition attempt, if the lock file exists, check for staleness: a lock older than 5 minutes (configurable via `HQ_LOCK_STALE_TIMEOUT`) is considered stale, the CLI breaks it, and retries acquisition. A non-stale lock waits for the full lock timeout before failing.**
+- [ ] **Step 4: Implement Windows locking and replacement using Windows APIs rather than assuming POSIX rename semantics. Support shared (`LOCKFILE_FAIL_IMMEDIATELY` without `LOCKFILE_EXCLUSIVE_LOCK`) and exclusive (`LOCKFILE_EXCLUSIVE_LOCK`) lock modes via the `exclusive` parameter.**
+- [ ] **Step 5: Add filesystem capability detection using a layered approach: (1) statfs-based identification of known-safe types (NTFS, ext4, APFS); (2) a probe write on the lock-path parent that tests the atomic replace contract (write temp file, durable sync, rename, verify target) before any real transaction; (3) an `HQ_FS_OVERRIDE` environment variable to bypass detection for known edge cases. Probe results are cached for the process lifetime. Capability validation must be performed after lock acquisition, not before: acquire lock on the user-supplied path first, then resolve ALL mutation paths (target, lock directory, temp directory, backup directory) to real paths (dereferencing symlinks/reparse points), verify all are under the HQ root, validate all are on the same filesystem type, then validate capabilities on the resolved paths. This eliminates TOCTOU windows where an adversary could swap a symlink or reparse point between check and mutation, and prevents mutation escaping the HQ root boundary.**
+- [ ] **Step 5b: Enforce owner-only permissions on all runtime artifacts: temp files, receipts, backup files, intent files, and lock files must be created with 0600 (POSIX) or equivalent owner-only DACL (Windows). Target replacement must preserve the original file's permission metadata (use stat+chmod after replacement to copy permissions from the original, or use platform-specific replace APIs that preserve security attributes). Verify this in the contract suite.**
+- [ ] **Step 6: Run native NTFS, ext4, and APFS jobs; record filesystem and OS evidence separately. Include compiled-subprocess lock-exclusion tests: build the test binary, spawn two competing writer subprocesses targeting the same file, and verify exactly one succeeds while the other receives `HQ_LOCK_TIMEOUT`. Repeat with a lock-holder crash scenario where the lock file remains and a restarted subprocess detects and breaks it via staleness.**
 - [ ] **Step 7: If commits are authorized, commit with `feat: add cross-platform transaction primitives`.**
 
 ### Task 2.3: Transaction Engine And Receipts
 
 **Files:**
-- Modify: `internal/assets/assets.go`
-- Modify: `internal/assets/assets_test.go`
+- Modify: `internal/assets/assets.go` (add `go:embed` directive and `ReceiptSchemaV1` export)
+- Modify: `internal/assets/assets_test.go` (add embed-parity test for receipt schema)
 - Create: `internal/contract/receipt.go`
 - Create: `schemas/receipt-v1.json`
 - Create: `internal/assets/schemas/receipt-v1.json`
@@ -86,10 +89,10 @@
 **Rollback:** Disable and remove Task 2.3 apply code; retain pending requests and all receipts/backups produced during disposable tests for inspection until the fixture is removed.
 
 - [ ] **Step 1: Write a failing success-path test that checks lock, expected hash, backup, rendered hash, replacement, receipt, and applied state.**
-- [ ] **Step 2: Write failing tests for approval-required submission followed by missing apply approval, mismatched request/command approval references, submit-only and denied policy, already-applied idempotency, conflict, lock timeout, tampered request, create-only collision, and same-account procedural evidence.**
+- [ ] **Step 2: Write failing tests for approval-required submission followed by missing apply approval, mismatched request/command approval references, submit-only and denied policy, already-applied idempotency, conflict, lock timeout, tampered request (modified stored request before apply), create-only collision (file exists at target), and same-account procedural evidence.**
 - [ ] **Step 3: Add injectable failure tests at every boundary listed in `docs/testing/strategy.md`.**
 - [ ] **Step 4: Run `go test ./internal/write`; verify failures.**
-- [ ] **Step 5: Implement the transaction sequence exactly as documented, embed the receipt schema with source-byte parity tests, and use deferred unlock with explicit recovery-state calculation.**
+- [ ] **Step 5: Implement the transaction sequence exactly as documented in `docs/contracts/results.md` and this plan, embed the receipt schema with source-byte parity tests, and use deferred unlock with explicit recovery-state calculation. Receipts must be stored in `.hq-interface/receipts/` with zero-padded cursor-encoded filenames (`<cursor-20-digit>.json`) so that filesystem readdir produces deterministic cursor order across all platforms. The transaction sequence must be: (1) load stored request and verify its hash matches the submit-time persisted hash (tamper detection); (2) allocate cursor; (3) write a durable intent file (`.hq-interface/intents/<request-id>.json`) recording request-id, cursor, target, backup-path, pre-hash, rendered-content-hash, and timestamp; (4) recheck target hash against expected-target-hash; (5) create and verify backup; (6) write and durable-sync temp rendered file; (7) replace target and durable-sync parent; (8) write and durable-sync receipt (with embedded cursor) using the cursor-encoded filename; (9) update request state; (10) durable-sync receipt directory; (11) atomically remove intent file. `CanonicalRequestHash` must include `ApprovalReference` in its hashed field set so authorization-relevant modification is detectable. On any subsequent transaction start, scan `.hq-interface/intents/` for orphaned intents and reconcile each: if receipt exists for that request-id, remove intent (receipt is authoritative); if target hash matches rendered-content-hash but no receipt, recreate receipt from intent; if target hash matches pre-hash, remove intent (no mutation occurred); otherwise mark request `recovery-required`. Create-only transactions: use `O_CREAT | O_EXCL` (or equivalent platform atomic-exclusive-create) for the target to prevent racing-writer overwrites; skip backup creation since there is no pre-existing content; if the file already exists at step 4 (target hash recheck), reject with `HQ_VERSION_CONFLICT`. On restart reconciliation of a create-only orphan intent: if the target file exists and its hash matches the expected rendered hash, recreate the receipt (success); otherwise mark `recovery-required`. The cursor must be allocated before the receipt file is written and embedded in the receipt JSON content so the receipt itself is the authoritative cursor publication — no separate cursor-advance step follows receipt creation. The cursor counter file (`.hq-interface/cursor`) is a monotonic allocator only; the authoritative set of published cursors is reconstructed from receipts on restart.**
 - [ ] **Step 6: Run `go test -race ./internal/write` including two concurrent writers; verify only one conflicting writer succeeds.**
 - [ ] **Step 7: Verify no injected failure reports success or leaves an unverified mutation.**
 - [ ] **Step 8: If commits are authorized, commit with `feat: apply HQ requests transactionally`.**
@@ -104,20 +107,23 @@
 - Modify: `internal/read/service_test.go`
 - Create: `internal/write/changes.go`
 - Create: `internal/write/changes_test.go`
+- Create: `internal/write/recovery.go`
+- Create: `internal/write/recovery_test.go`
 - Create: `docs/operations/recovery-command.md`
 
 **Interfaces:**
 - Produces: documented `apply`, extended `status`, and `changes` behavior.
 - Produces: `Changes.After(cursor uint64, limit int) (Page, error)` with deterministic ordering and `nextCursor`.
+- Produces: `RecoveryService` interface (`Inspect(ctx, requestID) (RecoveryInspection, error)` and `Restore(ctx, requestID, approvalReference string) (Receipt, error)`) in a new `internal/write/recovery.go` so command handlers call the interface rather than containing transaction mechanics.
 
 **Rollback:** Remove Task 2.4 command wiring and recovery documentation; retain immutable test receipts until disposable fixtures are removed.
 
-- [ ] **Step 1: Write failing CLI tests for apply success, approval required, policy denied, already-applied idempotency, conflict, lock timeout, safely rolled-back interruption, recovery-required interruption, status lifecycle, empty changes, pagination, restart, and concurrent receipts.**
+- [ ] **Step 0: Add `"applied"` to the mutation enum in `schemas/result-v1.json`, `internal/contract/result.go`, and the `Mutation` property in `docs/contracts/cli.md`. Phase 1's submit command retains `noMutation`; only apply emits `"applied"`.**
 - [ ] **Step 2: Run `go test ./internal/app ./internal/write`; verify failures.**
-- [ ] **Step 3: Implement command mapping, Phase 2 health capability checks, and monotonic cursor allocation under an interface-state lock.**
-- [ ] **Step 4: Implement `hq recover inspect --request-id <uuid>` and `hq recover restore --request-id <uuid> --approval-reference <text>` exactly as specified in `docs/contracts/cli.md` and `docs/contracts/results.md`.**
-- [ ] **Step 5: Write `docs/operations/recovery-command.md` with those exact invocations, required evidence, refusal cases, and exercised fixture output.**
-- [ ] **Step 6: Run all tests, race tests, vet, formatting, and a compiled CLI end-to-end fixture workflow.**
+- [ ] **Step 3: Implement command mapping, Phase 2 health capability checks, and monotonic cursor allocation under an interface-state lock. Cursor state must be reconstructed from all existing receipts on first allocation after restart: scan `.hq-interface/receipts/`, collect all cursor values, and initialize the counter to `max(cursor) + 1`. This eliminates gaps between allocation and publication and makes cursor state crash-recoverable without a separate scan pass. `Changes.After` reads receipt files directly — it does not depend on the in-memory counter — so restart never loses published receipts. `status` and `changes` commands must acquire a shared read lock on `.hq-interface/` before reading, preventing observation of partial write state. `--since` and `--after` flags are mutually exclusive: the CLI handler returns `HQ_INVALID_ARGUMENT` if both are provided. `--since` is converted to a cursor by scanning receipts for the first receipt whose timestamp >= the supplied time, then delegating to `Changes.After`.**
+- [ ] **Step 4: Implement `hq recover inspect --request-id <uuid>` and `hq recover restore --approval-reference <text> --request-id <uuid>` (approval-reference must be provided via `HQ_APPROVAL_REFERENCE` environment variable or read from stdin, not passed as a CLI argument visible to process listing) exactly as specified in `docs/contracts/cli.md` and `docs/contracts/results.md`. Update the `apply` command to also accept `--approval-reference` from environment variable or stdin. Publish in docs/operations/recovery-command.md that passing approval references via `--approval-reference` on the command line is deprecated and warns on stderr. The restore command must validate the approval reference through the same policy engine as `apply` — a non-empty check alone is insufficient. Additionally, require the restore approval reference to match the one recorded in the original apply receipt when a receipt exists for the request being restored. Before restoring, the command must recheck the target hash against the hash recorded during `recover inspect`; a mismatch after lock acquisition rejects the restore with `HQ_VERSION_CONFLICT`.**
+- [ ] **Step 5: Write `docs/operations/recovery-command.md` with those exact invocations, required evidence, refusal cases, and exercised fixture output. Include a warning that backups contain pre-apply content which may include credentials or secrets that were removed by the applied change; restore may reintroduce previously-removed secrets. Document that backup files use owner-only permissions and should be treated as sensitive.**
+- [ ] **Step 6: Run all tests, race tests, vet, formatting, and a compiled CLI end-to-end fixture workflow. The compiled E2E must exercise all four typed operations (project-check-in, session-entry, draft-record, current-work-update) each through a complete submit → apply → status → changes journey, verifying receipt content, cursor advancement, and target file state.**
 - [ ] **Step 7: Record request IDs, receipt hashes, recovery receipt, cursor output, and filesystem snapshot evidence.**
 - [ ] **Step 8: If commits are authorized, commit with `feat: expose apply, recovery, and change receipts`.**
 
@@ -125,161 +131,44 @@
 
 - [ ] All typed operations render deterministic valid markdown.
 - [ ] Native filesystem contract tests pass on NTFS, ext4, and APFS.
-- [ ] Two-writer race proves one success and one no-mutation conflict.
+- [ ] Two-writer race (in-process goroutines AND compiled subprocesses) proves one success and one no-mutation conflict.
 - [ ] Every failure-injection point produces an inspectable safe state.
-- [ ] Cursor polling resumes after restart without missing receipts.
+- [ ] Cursor polling resumes after restart without missing receipts (cursor is reconstructed from receipts on startup, not from a standalone counter).
 - [ ] Recovery inspect and approved restore match the contract and an exercised fixture recovery.
 
-## Deferred / Open Questions
-
-### From 2026-07-26 review
-
-- **Direct editors bypass the no-loss guarantee** — Goal and Architecture (P1, feasibility, adversarial, confidence 100)
-
-  A direct editor can change a target after validation and have that edit overwritten because only cooperating CLI processes honor the lock. The current acceptance test proves serialization between CLI writers, not protection for ordinary direct edits.
-
-- **Typed payload contracts conflict with renderer assumptions** — Task 2.1: Typed Markdown Renderers (P1, feasibility, security-lens, confidence 100)
-
-  Canonical writes can be rejected or rendered incorrectly because current payload types permit the wrong draft classifications, omit the section required for a new current-work entry, and do not strictly reject unknown or unsafe fields. Implementers would otherwise redesign public contracts during renderer work.
-
-- **Draft policy rejects canonical destinations** — Task 2.1: Typed Markdown Renderers (P1, feasibility, confidence 100)
-
-  Every documented draft destination is currently denied while a noncanonical project path is allowed. Draft application cannot succeed until policy rules align with the canonical inbox, project-report, and project-source destinations.
-
-- **Cursor publication ordering is undefined** — Tasks 2.3-2.4: Receipts and Changes (P1, coherence, adversarial, confidence 100)
-
-  Consumers can permanently miss a receipt when cursor allocation is separate from durable receipt publication. The plan also schedules cursor allocation after the task that must already create immutable receipts carrying cursors.
-
-- **Stored requests lack a trusted tamper baseline** — Task 2.3: Transaction Engine (P1, feasibility, security-lens, confidence 100)
-
-  A modified pending request can be applied as though it were the original because no immutable submit-time digest is persisted for comparison. The current request hash also excludes approval evidence, so authorization-relevant modification cannot be detected reliably.
-
-- **Abrupt crashes bypass recoverable state** — Task 2.3: Transaction Engine (P1, adversarial, feasibility, confidence 100)
-
-  A process kill after target replacement can leave changed HQ content with no receipt, final request state, or discoverable recovery evidence. Returned-error injection cannot prove restart safety without durable transaction intent and reconciliation.
-
-- **Create-only transaction semantics are incomplete** — Tasks 2.2-2.3: Filesystem Transaction (P1, feasibility, security-lens, adversarial, confidence 100)
-
-  A racing creator can be overwritten, and an interrupted creation can leave an unreceipted file that backup-based restore cannot remove safely. Create-only work needs atomic no-replace installation plus a durable absent-before-state recovery rule.
-
-- **Mutation paths are not race-safe** — Task 2.2: Filesystem Contract (P1, feasibility, security-lens, adversarial, confidence 100)
-
-  A linked ancestor, reparse-point swap, or nested unsupported mount can redirect a mutation beyond the boundary that was validated earlier. Mutation-time containment and capability checks must cover the actual target, temporary, lock, and backup directories.
-
-- **Verified backups are not crash-durable** — Task 2.2: Filesystem Contract (P1, adversarial, confidence 75)
-
-  A power loss after replacement can leave neither the original target nor a usable backup even when the backup hash was read back successfully. Backup completion must include durable file and parent-directory synchronization before replacement begins.
-
-- **Permission invariants are unspecified** — Task 2.2: Filesystem Contract (P1, security-lens, confidence 75)
-
-  Runtime artifacts can inherit access broader than the owner, and target replacement can weaken existing file protections without changing content hashes. The filesystem contract needs owner-only runtime creation and verified preservation of target security metadata.
-
-- **Recovery commands lack a service boundary** — Tasks 2.3-2.4: Recovery (P1, coherence, confidence 75)
-
-  Implementers must invent where read-only inspection and transactional restore belong because only the apply interface is declared. Without an explicit recovery service contract, command code may absorb transaction mechanics or incompatible APIs may emerge.
-
-- **Restore approval lacks a target precondition** — Task 2.4: Recovery (P1, security-lens, confidence 75)
-
-  Restore can erase a legitimate edit made after inspection because approval is not bound to the target state the operator reviewed. The target hash must be rechecked under lock before an approved restore mutates it.
-
-- **Lock acceptance misses independent processes** — Task 2.2 and Phase Acceptance (P1, adversarial, confidence 75)
-
-  Same-process race tests can pass while separate CLI invocations fail to exclude one another or release locks after a crash. Native acceptance must exercise compiled subprocesses on every validated filesystem.
-
-- **Compiled acceptance omits typed journeys** — Task 2.4 and Phase Acceptance (P1, product-lens, confidence 75)
-
-  One or more promised write workflows can fail through the compiled CLI even when renderer and generic transaction tests pass. Each of the four typed operations needs its own submit, apply, status, and change-discovery fixture journey.
-
-- **Change filter interaction is undefined** — Task 2.4: Changes (P2, coherence, feasibility, confidence 100)
-
-  Implementers must choose incompatible behavior because the public command accepts both cursor and time filters while the planned service accepts only a cursor. The contract must decide whether the filters are mutually exclusive or combine conjunctively.
-
-- **Successful apply lacks an envelope state** — Tasks 2.3-2.4: Result Contract (P2, feasibility, confidence 75)
-
-  A successful authoritative mutation cannot be represented accurately because the result envelope permits only no-mutation and failure-recovery states while receipt examples use an applied state. The versioned result contract must resolve that contradiction before command wiring.
-
-- **Backups can retain prohibited secrets** — Tasks 2.2-2.3: Backups (P2, security-lens, confidence 75)
-
-  A credential already present in a target can survive its removal because apply retains the pre-write content as a backup. The plan must reconcile mandatory recoverability with the absolute prohibition on storing secrets in backups.
-
-### From 2026-07-29 review
-
-- **Receipt-cursor atomicity unspecified** — Task 2.3 / Phase Acceptance (P0, adversarial, confidence 100)
-
-  Cursor advancement and receipt creation are independent filesystem operations; crashes between them produce receipt gaps or duplicate processing that violate the no-silent-data-loss guarantee.
-
-- **Crash window during replace unanalyzed** — Task 2.3 Step 5 (P0, adversarial, confidence 100)
-
-  No recovery-state machine distinguishes pre-replace, partial-replace, and post-replace-pre-receipt states after a crash, making it impossible to determine whether to restore from backup or retry.
-
-- **Restore authorization too weak** — Task 2.4 (P0, security-lens, confidence 100)
-
-  The recover restore command authorizes destructive file overwrite by checking only that the approval-reference is non-empty; any local user who knows the command shape can restore backups without policy-engine evaluation.
-
-- **Result schema mutation enum incomplete** — Task 2.3 (P1, feasibility, confidence 100)
-
-  The result envelope constrains mutation to noMutation/rolledBack/recoveryRequired but the apply receipt contract requires "applied"; a successful authoritative mutation cannot be represented accurately.
-
-- **Approval reference exposed in process listing** — Task 2.4 (P1, security-lens, confidence 75)
-
-  The approval-reference flag passes the reference as a CLI argument visible to all local processes via ps or WMI, leaking audit data to any user on the host.
-
-- **Deterministic ordering lacks enforcement** — Task 2.4 (P1, adversarial, confidence 75)
-
-  Changes.After claims deterministic ordering but filesystem readdir does not guarantee stable order across platforms after fsck, defrag, or restore cycles; consumers experience non-deterministic behavior across reboots.
-
-- **Cursor persistence across restarts underspecified** — Phase Acceptance vs Task 2.4 (P1, coherence, confidence 75)
-
-  Phase Acceptance requires cursor polling to survive process restart without missing receipts, but no implementation step specifies how cursor state is persisted; implementers will produce incompatible designs.
-
-- **Cursor allocation ordering gap** — Tasks 2.3-2.4 (P1, feasibility, confidence 75)
-
-  Receipt carries a cursor field created in Task 2.3 but cursor allocation is not specified until Task 2.4 Step 3, leaving the Task 2.3 implementer without a mechanism for producing valid receipts.
-
-- **Read-side isolation not addressed** — Architecture (P1, adversarial, confidence 75)
-
-  Readers (status, changes, polling consumers) do not acquire the transaction lock, so concurrent reads observe partially written mutation state and produce inconsistent reporting to users.
-
-- **Backup permissions unspecified** — Task 2.2 (P1, security-lens, confidence 75)
-
-  Backups contain complete pre-mutation content with the same sensitivity as production records but have no documented owner-only creation or permission contract.
-
-- **Symlink redirection between check and mutation** — Task 2.2 (P1, security-lens, confidence 75)
-
-  Filesystem capability validation precedes lock acquisition, but an adversary with filesystem write access can swap a symlink or reparse point between check and use, redirecting mutation.
-
-- **Restore lacks target-state precondition** — Task 2.4 (P1, security-lens, confidence 75)
-
-  An approved restore can overwrite legitimate edits made between inspection and restore because approval is not bound to the target hash observed during inspect.
-
-- **Filesystem detection unreliable for mutation gating** — Task 2.2 Step 5 (P1, adversarial, confidence 75)
-
-  Statfs-based filesystem-type detection produces false negatives that silently proceed with non-atomic mutation on network filesystems, and false positives that block legitimate local use.
-
-- **Journal-based atomic write not evaluated** — Architecture (P1, adversarial, confidence 75)
-
-  The lock-backup-replace sequence has asymmetric failure modes; the standard journal-rename pattern used by database engines and package managers is not discussed or compared.
-
-- **Backup path collision on repeated applies** — Task 2.2 (P1, adversarial, confidence 75)
-
-  Apply running twice against the same target file overwrites the first backup before the second transaction completes, destroying the only usable restore point.
-
-- **Assets.go not extended for receipt schema** — Task 2.3 (P1, feasibility, confidence 75)
-
-  The plan creates internal/assets/schemas/receipt-v1.json but does not add the go:embed directive or exported variable following the established Phase-1 embed pattern.
-
-- **FS.Capabilities return type undefined** — Task 2.2 (P1, feasibility, confidence 75)
-
-  The interface method FS.Capabilities returns a Capabilities type that is never defined; implementers will produce incompatible struct definitions that shape the FS adapter contract.
-
-- **Ambiguous implementer reference** — Task 2.3 Step 5 (P2, coherence, confidence 75)
-
-  Other steps name specific contract documents for reference, but Task 2.3 Step 5 says "exactly as documented" without naming which document is authoritative.
-
-- **Stale lock after crash not handled** — Task 2.2 (P3, adversarial, confidence 50)
-
-  Filesystem lock files survive process crashes; without lock-file content conventions and timeout-based staleness checks, a restarted CLI refuses to operate with no documented recovery procedure.
-
-- **Renderer contract unreviewed** — Task 2.1 (P3, adversarial, confidence 50)
-
-  Renderers implement the hq-markdown.md contract, but the contract itself is not validated within this plan's scope; golden tests reify specification errors, making them harder to detect later.
+## Resolved Open Questions
+
+All open questions from the 2026-07-26 and 2026-07-29 reviews have been resolved in the plan above. Concrete resolutions are encoded directly into the task steps and architecture description. See the following for cross-reference:
+
+- **Q1 (receipt-cursor atomicity)**: Task 2.3 Step 5 — cursor allocated before receipt, embedded in receipt JSON, cursor state reconstructed from receipts on restart.
+- **Q2, Q26 (crash window, abrupt crashes)**: Task 2.3 Step 5 — durable intent file before mutation, orphaned-intent reconciliation on restart.
+- **Q3 (restore authorization)**: Task 2.4 Step 4 — policy-engine validation for restore, approval reference must match original receipt.
+- **Q4 (mutation enum)**: Task 2.4 Step 0 — `"applied"` added to schema, Go enum, and CLI contract.
+- **Q5 (approval reference exposed)**: Task 2.4 Step 4 — read from env var or stdin, not CLI arg; deprecate CLI flag.
+- **Q6 (deterministic ordering)**: Task 2.3 Step 5 — cursor-encoded receipt filenames for stable readdir.
+- **Q7 (cursor restart persistence)**: Task 2.4 Step 3 — receipts survive restart, `Changes.After` reads receipt files directly.
+- **Q8 (cursor ordering gap)**: Resolved by Q1 migration — cursor allocation defined in Task 2.3 Step 5.
+- **Q9 (read-side isolation)**: Task 2.2 Lock interface includes shared/exclusive modes; Task 2.4 Step 3 — read commands acquire shared lock.
+- **Q10, Q30 (backup permissions, permission invariants)**: Task 2.2 Backup returns owner-only; Task 2.2 Step 5b — owner-only artifacts + permission preservation on replace.
+- **Q11, Q28 (symlink redirection, mutation path safety)**: Task 2.2 Step 5 — validate after lock, resolve all mutation paths to real paths under HQ root.
+- **Q12, Q32 (restore target precondition)**: Task 2.4 Step 4 — recheck target hash under lock before restore.
+- **Q13 (filesystem detection)**: Task 2.2 Step 5 — layered detection (statfs + probe write + override env var).
+- **Q14 (journal pattern)**: Architecture section — intent file IS the journal; Task 2.3 Step 5 intent lifecycle.
+- **Q15 (backup collision)**: Task 2.2 Backup — request-ID in backup filename.
+- **Q16 (assets.go embedding)**: Task 2.3 files list — embed directive and ReceiptSchemaV1 export.
+- **Q17 (Capabilities type)**: Task 2.2 interface — `Capabilities` struct defined in fs.go with all required fields.
+- **Q18 (ambiguous reference)**: Task 2.3 Step 5 — names `docs/contracts/results.md` and this plan.
+- **Q19 (stale lock)**: Task 2.2 Step 3 — lock file content with PID/timestamp, staleness timeout.
+- **Q20 (renderer contract)**: Task 2.1 Step 1 — validate contract assumptions against fixture data before golden tests.
+- **Q21 (direct editors)**: Task 2.3 Step 5 — hash recheck at apply time detects any modification (not just CLI).
+- **Q22, Q23 (payload contracts, draft policy)**: Task 2.1 Steps 1b-1c — fix DraftRecord classifications, CurrentWorkUpdate Section field, payload unknown-field rejection, policy rules for canonical draft destinations.
+- **Q24 (cursor publication)**: Resolved by Q1 — receipt IS publication.
+- **Q25 (tamper baseline)**: Task 2.3 Step 5 — verify stored request hash against submit-time persisted hash; `CanonicalRequestHash` includes `ApprovalReference`.
+- **Q27 (create-only semantics)**: Task 2.3 Step 5 — `O_CREAT | O_EXCL` for creates, no backup, absent-before recovery rule.
+- **Q29 (backup durability)**: Task 2.2 Step 1 — backup file + parent directory fsynced before replacement.
+- **Q31 (recovery service boundary)**: Task 2.4 files and interface — `RecoveryService` interface with `Inspect`/`Restore` methods.
+- **Q33 (lock subprocesses)**: Task 2.2 Step 6 — compiled-subprocess lock-exclusion tests.
+- **Q34 (typed journeys)**: Task 2.4 Step 6 — compiled E2E journeys for all four typed operations.
+- **Q35 (change filters)**: Task 2.4 Step 3 — `--since` and `--after` mutually exclusive; `--since` converted to cursor scan.
+- **Q36 (envelope state)**: Resolved by Q4 — `"applied"` added.
+- **Q37 (backup secrets)**: Task 2.4 Step 5 — recovery docs warn about secrets in backups.
