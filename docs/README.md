@@ -14,7 +14,7 @@
 10. `operations/release-and-rollback.md` - install, upgrade, recovery, and rollback.
 11. `operations/agent-skill.md` - boundary and evaluation contract for `hq-io`.
 12. `traceability.md` - requirements mapped to plan tasks and release evidence.
-13. `docs/plans/2026-07-24-hq-cli-master.md` - execution sequence and acceptance gates.
+13. `docs/plans/2026-07-24-phase-2-apply-and-changes.md` - active phase execution plan (master plan archived at commit `2488337`).
 
 ## Decisions
 
