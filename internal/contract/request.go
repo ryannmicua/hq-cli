@@ -71,7 +71,7 @@ type DraftRecord struct {
 }
 
 var AllowedClassifications = map[string]bool{
-	"inbox":           true,
+	"inbox":          true,
 	"project-report": true,
 	"project-source": true,
 }

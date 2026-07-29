@@ -13,21 +13,21 @@ import (
 )
 
 var (
-	modkernel32Lock    = syscall.NewLazyDLL("kernel32.dll")
-	procCreateFileW    = modkernel32Lock.NewProc("CreateFileW")
-	procLockFileEx     = modkernel32Lock.NewProc("LockFileEx")
-	procUnlockFileEx   = modkernel32Lock.NewProc("UnlockFileEx")
+	modkernel32Lock                  = syscall.NewLazyDLL("kernel32.dll")
+	procCreateFileW                  = modkernel32Lock.NewProc("CreateFileW")
+	procLockFileEx                   = modkernel32Lock.NewProc("LockFileEx")
+	procUnlockFileEx                 = modkernel32Lock.NewProc("UnlockFileEx")
 	procGetFileInformationByHandleEx = modkernel32Lock.NewProc("GetFileInformationByHandleEx")
 )
 
 const (
-	lockFileFlags = 0x00000000
-	lockExclusive = 0x00000002
-	lockShared    = 0x00000000
+	lockFileFlags     = 0x00000000
+	lockExclusive     = 0x00000002
+	lockShared        = 0x00000000
 	lockFailImmediate = 0x00000001
 
-	fileShareRead = 0x00000001
-	fileShareWrite = 0x00000002
+	fileShareRead   = 0x00000001
+	fileShareWrite  = 0x00000002
 	fileShareDelete = 0x00000004
 	openExisting    = 3
 	openAlways      = 4

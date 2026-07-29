@@ -9,10 +9,10 @@ import (
 type UnlockFunc func() error
 
 type Capabilities struct {
-	SupportAtomicReplace       bool   `json:"supportAtomicReplace"`
-	SupportFileLocking         bool   `json:"supportFileLocking"`
-	FilesystemType             string `json:"filesystemType"`
-	RootPath                   string `json:"rootPath"`
+	SupportAtomicReplace        bool   `json:"supportAtomicReplace"`
+	SupportFileLocking          bool   `json:"supportFileLocking"`
+	FilesystemType              string `json:"filesystemType"`
+	RootPath                    string `json:"rootPath"`
 	SupportOwnerOnlyPermissions bool   `json:"supportOwnerOnlyPermissions"`
 }
 

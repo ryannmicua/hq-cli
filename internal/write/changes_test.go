@@ -32,13 +32,13 @@ func TestChangesAfter_ReturnsOrdered(t *testing.T) {
 
 	for i := uint64(1); i <= 5; i++ {
 		r := contract.Receipt{
-			SchemaVersion:   "1.0",
-			Cursor:          i,
-			RequestID:       "",
-			Target:          "",
-			TargetSha256:    "",
-			RenderedSha256:  "",
-			AppliedAt:       "",
+			SchemaVersion:  "1.0",
+			Cursor:         i,
+			RequestID:      "",
+			Target:         "",
+			TargetSha256:   "",
+			RenderedSha256: "",
+			AppliedAt:      "",
 		}
 		if err := receipts.Store(r); err != nil {
 			t.Fatalf("store receipt %d: %v", i, err)

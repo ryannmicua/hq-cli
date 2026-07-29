@@ -41,7 +41,7 @@ func TestRecoveryInspect_PendingRequest(t *testing.T) {
 		SchemaVersion: "1.0", RequestID: "018f0000-0000-7000-8000-000000000050",
 		Caller: contract.Caller{Name: "test"}, Purpose: "test",
 		Operation: "project-check-in", Target: "projects/test/STATE.md",
-		Payload: payload,
+		Payload:            payload,
 		ExpectedTargetHash: sha256hex(targetContent),
 	}
 
@@ -92,7 +92,7 @@ func TestRecoveryInspect_AppliedWithReceipt(t *testing.T) {
 		SchemaVersion: "1.0", RequestID: "018f0000-0000-7000-8000-000000000060",
 		Caller: contract.Caller{Name: "test"}, Purpose: "test",
 		Operation: "project-check-in", Target: "projects/test/STATE.md",
-		Payload: payload,
+		Payload:            payload,
 		ExpectedTargetHash: sha256hex(targetContent),
 	}
 
