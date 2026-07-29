@@ -66,6 +66,36 @@ func TestPolicyV1_DefaultDenied(t *testing.T) {
 	}
 }
 
+func TestReceiptSchemaV1_MatchesSourceFile(t *testing.T) {
+	sourceBytes, err := os.ReadFile("schemas/receipt-v1.json")
+	if err != nil {
+		t.Fatalf("failed to read source receipt schema: %v", err)
+	}
+
+	if len(assets.ReceiptSchemaV1) == 0 {
+		t.Fatal("embedded ReceiptSchemaV1 is empty")
+	}
+
+	if string(assets.ReceiptSchemaV1) != string(sourceBytes) {
+		t.Fatal("embedded receipt schema bytes do not match source file")
+	}
+}
+
+func TestReceiptSchemaV1_MatchesSchemasDir(t *testing.T) {
+	sourceBytes, err := os.ReadFile("../../schemas/receipt-v1.json")
+	if err != nil {
+		t.Fatalf("failed to read schemas/receipt-v1.json: %v", err)
+	}
+
+	if len(assets.ReceiptSchemaV1) == 0 {
+		t.Fatal("embedded ReceiptSchemaV1 is empty")
+	}
+
+	if string(assets.ReceiptSchemaV1) != string(sourceBytes) {
+		t.Fatal("embedded receipt schema bytes do not match schemas/ source")
+	}
+}
+
 func TestPolicyV1_NoDuplicateRules(t *testing.T) {
 	p, _ := write.ParsePolicyJSON(assets.PolicyV1)
 	seen := make(map[string]bool)

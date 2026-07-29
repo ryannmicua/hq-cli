@@ -65,7 +65,7 @@
     },
     "mutation": {
       "type": "string",
-      "enum": ["noMutation", "rolledBack", "recoveryRequired"],
+      "enum": ["noMutation", "applied", "rolledBack", "recoveryRequired"],
       "description": "Mutation status of the command."
     }
   }

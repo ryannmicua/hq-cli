@@ -3,6 +3,7 @@ package write
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -70,7 +71,7 @@ func matchPattern(pattern, target string) bool {
 			}
 			return false
 		}
-		if patternParts[pi] == "*" || patternParts[pi] == targetParts[ti] {
+		if patternParts[pi] == "*" || matchComponent(patternParts[pi], targetParts[ti]) {
 			pi++
 			ti++
 			continue
@@ -78,6 +79,14 @@ func matchPattern(pattern, target string) bool {
 		return false
 	}
 	return pi == len(patternParts) && ti == len(targetParts)
+}
+
+func matchComponent(pattern, target string) bool {
+	if pattern == target {
+		return true
+	}
+	matched, _ := filepath.Match(pattern, target)
+	return matched
 }
 
 func ParsePolicyJSON(data []byte) (*Policy, error) {

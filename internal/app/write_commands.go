@@ -137,6 +137,162 @@ func handleStatus(ctx context.Context, args []string, writeSvc *WriteService, st
 	return writeResult(stdout, r)
 }
 
+func handleApply(ctx context.Context, args []string, writeSvc *WriteService, engine *write.TransactionEngine, stdout, stderr io.Writer) int {
+	flags, _ := parseFlags(args)
+
+	requestID, ok := flags["request-id"]
+	if !ok {
+		r := contract.NewError("apply", contract.ErrDetail(contract.CodeInvalidArgument, "apply requires --request-id <uuid>", false, nil))
+		return writeResult(stdout, r)
+	}
+
+	approvalRef := flags["approval-reference"]
+	if approvalRef == "" {
+		approvalRef = os.Getenv("HQ_APPROVAL_REFERENCE")
+	}
+
+	receipt, err := engine.Apply(ctx, requestID, approvalRef)
+	if err != nil {
+		msg := err.Error()
+		code := classifyError(msg, []string{
+			contract.CodeNotFound,
+			contract.CodeInvalidRequest,
+			contract.CodeVersionConflict,
+			contract.CodeLockTimeout,
+			contract.CodeApprovalRequired,
+			contract.CodePolicyDenied,
+			contract.CodeWriteInterrupted,
+			contract.CodeUnsupportedFS,
+		})
+		if code == "" {
+			code = contract.CodeInternalError
+		}
+		r := contract.NewError("apply", contract.ErrDetail(code, msg, false, nil))
+		return writeResult(stdout, r)
+	}
+
+	dataOut := map[string]any{
+		"requestId":    receipt.RequestID,
+		"cursor":       receipt.Cursor,
+		"target":       receipt.Target,
+		"targetSha256": receipt.TargetSha256,
+		"appliedAt":    receipt.AppliedAt,
+	}
+
+	r := contract.NewSuccess("apply", dataOut)
+	r.Mutation = contract.MutationApplied
+	return writeResult(stdout, r)
+}
+
+func handleChanges(ctx context.Context, args []string, changesSvc *write.ChangesService, stdout, stderr io.Writer) int {
+	flags, _ := parseFlags(args)
+
+	var cursor uint64
+	afterStr := flags["after"]
+	if afterStr != "" {
+		if _, err := fmt.Sscanf(afterStr, "%d", &cursor); err != nil {
+			r := contract.NewError("changes", contract.ErrDetail(contract.CodeInvalidArgument, fmt.Sprintf("invalid cursor value: %s", afterStr), false, nil))
+			return writeResult(stdout, r)
+		}
+	}
+
+	limit := 100
+	limitStr := flags["limit"]
+	if limitStr != "" {
+		if v, err := fmt.Sscanf(limitStr, "%d", &limit); err != nil || v != 1 || limit <= 0 {
+			r := contract.NewError("changes", contract.ErrDetail(contract.CodeInvalidArgument, fmt.Sprintf("invalid limit: %s", limitStr), false, nil))
+			return writeResult(stdout, r)
+		}
+	}
+
+	page, err := changesSvc.After(cursor, limit)
+	if err != nil {
+		r := contract.NewError("changes", contract.ErrDetail(contract.CodeInternalError, err.Error(), false, nil))
+		return writeResult(stdout, r)
+	}
+
+	dataOut := map[string]any{
+		"receipts":   page.Receipts,
+		"nextCursor": page.NextCursor,
+		"hasMore":    page.HasMore,
+	}
+
+	r := contract.NewSuccess("changes", dataOut)
+	return writeResult(stdout, r)
+}
+
+func handleRecover(ctx context.Context, args []string, recoverySvc *write.RecoveryService, stdout, stderr io.Writer) int {
+	flags, positional := parseFlags(args)
+
+	subcommand := ""
+	if len(positional) > 0 {
+		subcommand = positional[0]
+	}
+
+	switch subcommand {
+	case "inspect":
+		requestID, ok := flags["request-id"]
+		if !ok {
+			r := contract.NewError("recover", contract.ErrDetail(contract.CodeInvalidArgument, "recover inspect requires --request-id <uuid>", false, nil))
+			return writeResult(stdout, r)
+		}
+
+		inspection, err := recoverySvc.Inspect(ctx, requestID)
+		if err != nil {
+			msg := err.Error()
+			code := classifyError(msg, []string{
+				contract.CodeNotFound,
+				contract.CodeInvalidRequest,
+			})
+			if code == "" {
+				code = contract.CodeInternalError
+			}
+			r := contract.NewError("recover", contract.ErrDetail(code, msg, false, nil))
+			return writeResult(stdout, r)
+		}
+
+		r := contract.NewSuccess("recover", inspection)
+		return writeResult(stdout, r)
+
+	case "restore":
+		requestID, ok := flags["request-id"]
+		if !ok {
+			r := contract.NewError("recover", contract.ErrDetail(contract.CodeInvalidArgument, "recover restore requires --request-id <uuid>", false, nil))
+			return writeResult(stdout, r)
+		}
+
+		approvalRef := flags["approval-reference"]
+		if approvalRef == "" {
+			approvalRef = os.Getenv("HQ_APPROVAL_REFERENCE")
+		}
+
+		receipt, err := recoverySvc.Restore(ctx, requestID, approvalRef)
+		if err != nil {
+			msg := err.Error()
+			code := classifyError(msg, []string{
+				contract.CodeNotFound,
+				contract.CodeInvalidRequest,
+				contract.CodeVersionConflict,
+				contract.CodeApprovalRequired,
+				contract.CodeWriteInterrupted,
+			})
+			if code == "" {
+				code = contract.CodeInternalError
+			}
+			r := contract.NewError("recover", contract.ErrDetail(code, msg, false, nil))
+			return writeResult(stdout, r)
+		}
+
+		r := contract.NewSuccess("recover", receipt)
+		r.Mutation = contract.MutationApplied
+		return writeResult(stdout, r)
+
+	default:
+		r := contract.NewError("recover", contract.ErrDetail(contract.CodeInvalidArgument, "recover requires subcommand: inspect or restore", false, nil))
+		return writeResult(stdout, r)
+	}
+}
+
 func isErrorCode(msg, code string) bool {
 	return strings.HasPrefix(msg, code+":")
 }

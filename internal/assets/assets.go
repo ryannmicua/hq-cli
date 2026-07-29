@@ -14,3 +14,8 @@ var ResultSchemaV1 []byte
 //
 //go:embed policy-v1.json
 var PolicyV1 []byte
+
+// ReceiptSchemaV1 is the embedded bytes of schemas/receipt-v1.json.
+//
+//go:embed schemas/receipt-v1.json
+var ReceiptSchemaV1 []byte

@@ -1,6 +1,6 @@
 // Package app implements the CLI dispatcher. Phase 0 handles read-only
 // commands: version, health, context, get, list, and search. Phase 1 adds
-// submit and status commands.
+// submit and status commands. Phase 2 adds apply, changes, and recover.
 package app
 
 import (
@@ -13,6 +13,7 @@ import (
 	"github.com/ryannmicua/hq-cli/internal/assets"
 	"github.com/ryannmicua/hq-cli/internal/config"
 	"github.com/ryannmicua/hq-cli/internal/contract"
+	"github.com/ryannmicua/hq-cli/internal/fsx"
 	"github.com/ryannmicua/hq-cli/internal/read"
 	"github.com/ryannmicua/hq-cli/internal/write"
 )
@@ -78,17 +79,23 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return contract.ExitCode(errDetail.Code)
 	}
 
-	// Create write service for submit/status commands.
+	// Create write service for submit/status/apply/changes/recover commands.
 	policy, _ := write.ParsePolicyJSON(assets.PolicyV1)
+	f := fsx.NewFS()
 	writeSvc := NewWriteService(cfg.Root, policy)
+	receipts := write.NewReceiptStore(f, cfg.Root)
+	store := write.NewRequestStore(f, cfg.Root, policy)
+	engine := write.NewTransactionEngine(f, cfg.Root, store, receipts, policy)
+	changesSvc := write.NewChangesService(f, cfg.Root, receipts)
+	recoverySvc := write.NewRecoveryService(f, cfg.Root, store, receipts, policy)
 
-	return dispatchCommand(cmd, cmdArgs, svc, writeSvc, stdout, stderr)
+	return dispatchCommand(cmd, cmdArgs, svc, writeSvc, engine, changesSvc, recoverySvc, stdout, stderr)
 }
 
 // envLookup wraps os.LookupEnv for the config package.
 var envLookup = os.LookupEnv
 
-func dispatchCommand(cmd string, args []string, svc *read.Service, writeSvc *WriteService, stdout, stderr io.Writer) int {
+func dispatchCommand(cmd string, args []string, svc *read.Service, writeSvc *WriteService, engine *write.TransactionEngine, changesSvc *write.ChangesService, recoverySvc *write.RecoveryService, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 
 	switch cmd {
@@ -108,6 +115,12 @@ func dispatchCommand(cmd string, args []string, svc *read.Service, writeSvc *Wri
 		return handleSubmit(ctx, args, writeSvc, stdout, stderr)
 	case "status":
 		return handleStatus(ctx, args, writeSvc, stdout, stderr)
+	case "apply":
+		return handleApply(ctx, args, writeSvc, engine, stdout, stderr)
+	case "changes":
+		return handleChanges(ctx, args, changesSvc, stdout, stderr)
+	case "recover":
+		return handleRecover(ctx, args, recoverySvc, stdout, stderr)
 	default:
 		_, _ = stderr.Write([]byte(fmt.Sprintf("hq: unknown command: %s\n", cmd)))
 		_ = contract.WriteJSON(stdout, contract.NewError(cmd, contract.ErrDetail(contract.CodeInvalidArgument, fmt.Sprintf("unknown command: %s", cmd), false, nil)))

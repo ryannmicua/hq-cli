@@ -14,6 +14,7 @@ type MutationState string
 
 const (
 	MutationNoMutation       MutationState = "noMutation"
+	MutationApplied          MutationState = "applied"
 	MutationRolledBack       MutationState = "rolledBack"
 	MutationRecoveryRequired MutationState = "recoveryRequired"
 )
