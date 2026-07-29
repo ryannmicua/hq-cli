@@ -212,14 +212,15 @@ func (te *TransactionEngine) Apply(ctx context.Context, requestID string, approv
 		AppliedAt:         time.Now().UTC().Format(time.RFC3339),
 	}
 
-	if err := te.receipts.Store(receipt); err != nil {
-		return contract.Receipt{}, fmt.Errorf("HQ_WRITE_INTERRUPTED: store receipt: %w", err)
-	}
-
 	appliedDir := filepath.Join(te.root, ".hq-interface", "requests", "applied")
 	newPath := filepath.Join(appliedDir, requestID+".json")
 	if err := os.Rename(reqPath, newPath); err != nil {
 		return contract.Receipt{}, fmt.Errorf("HQ_WRITE_INTERRUPTED: move to applied: %w", err)
+	}
+
+	if err := te.receipts.Store(receipt); err != nil {
+		os.Rename(newPath, reqPath)
+		return contract.Receipt{}, fmt.Errorf("HQ_WRITE_INTERRUPTED: store receipt: %w", err)
 	}
 
 	return receipt, nil

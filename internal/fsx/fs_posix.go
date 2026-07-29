@@ -30,8 +30,24 @@ func (f *posixFS) WriteDurable(dir, name string, data []byte) (string, error) {
 		return "", fmt.Errorf("create temp dir %q: %w", dir, err)
 	}
 	tmpPath := filepath.Join(dir, name)
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+	fd, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return "", fmt.Errorf("create temp file %q: %w", tmpPath, err)
+	}
+	_, err = fd.Write(data)
+	if err != nil {
+		fd.Close()
+		os.Remove(tmpPath)
 		return "", fmt.Errorf("write temp file %q: %w", tmpPath, err)
+	}
+	if err := fd.Sync(); err != nil {
+		fd.Close()
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("fsync temp file %q: %w", tmpPath, err)
+	}
+	if err := fd.Close(); err != nil {
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("close temp file %q: %w", tmpPath, err)
 	}
 	return tmpPath, nil
 }

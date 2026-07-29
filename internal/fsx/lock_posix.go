@@ -30,11 +30,13 @@ func (f *posixFS) Lock(ctx context.Context, target string, timeout time.Duration
 	now := time.Now()
 	lockContent := fmt.Sprintf("%s|%d|%d\n", hostname, pid, now.UnixNano())
 
-	if err := os.WriteFile(lockPath, []byte(lockContent), 0600); err != nil {
-		return nil, fmt.Errorf("write lock file: %w", err)
+	owner, err := syscall.Open(lockPath, syscall.O_RDWR|syscall.O_CREAT|syscall.O_EXCL, 0600)
+	if err == nil {
+		syscall.Write(owner, []byte(lockContent))
+		syscall.Close(owner)
 	}
 
-	fd, err := syscall.Open(lockPath, syscall.O_RDWR|syscall.O_CREAT, 0600)
+	fd, err := syscall.Open(lockPath, syscall.O_RDWR, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}

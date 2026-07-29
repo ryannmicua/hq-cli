@@ -182,6 +182,12 @@ func (rs *RecoveryService) Restore(ctx context.Context, requestID string, approv
 		}
 	}
 
+	unlock, err := rs.fsys.Lock(ctx, targetPath, 0, true)
+	if err != nil {
+		return contract.Receipt{}, fmt.Errorf("HQ_LOCK_TIMEOUT: cannot acquire lock on %q: %w", inspection.Target, err)
+	}
+	defer unlock()
+
 	if err := os.WriteFile(targetPath, backupData, 0600); err != nil {
 		return contract.Receipt{}, fmt.Errorf("HQ_WRITE_INTERRUPTED: restore write: %w", err)
 	}
@@ -197,6 +203,10 @@ func (rs *RecoveryService) Restore(ctx context.Context, requestID string, approv
 		BackupSha256:      receipt.BackupSha256,
 		ApprovalReference: approvalReference,
 		AppliedAt:         time.Now().UTC().Format(time.RFC3339),
+	}
+
+	if err := rs.receipts.Store(recoveryReceipt); err != nil {
+		return contract.Receipt{}, fmt.Errorf("HQ_WRITE_INTERRUPTED: store recovery receipt: %w", err)
 	}
 
 	return recoveryReceipt, nil

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ryannmicua/hq-cli/internal/contract"
 	"github.com/ryannmicua/hq-cli/internal/fsx"
@@ -167,30 +168,61 @@ func (rs *ReceiptStore) ListAfter(cursor uint64, limit int) ([]contract.Receipt,
 
 func (rs *ReceiptStore) NextCursor() (uint64, error) {
 	dir := receiptsDir(rs.root)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return 1, nil
-		}
-		return 0, fmt.Errorf("read receipts dir: %w", err)
+	if err := rs.fsys.MkdirPrivate(dir, 0700); err != nil {
+		return 0, fmt.Errorf("create receipts dir: %w", err)
 	}
 
-	maxCursor := uint64(0)
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
+	lockDir := filepath.Join(dir, ".cursor.lock")
+	counterPath := filepath.Join(dir, ".cursor")
+
+	if err := os.Mkdir(lockDir, 0700); err != nil {
+		if !os.IsExist(err) {
+			return 0, fmt.Errorf("create cursor lock: %w", err)
 		}
-		name := strings.TrimSuffix(entry.Name(), ".json")
-		c, err := strconv.ParseUint(name, 10, 64)
+		for i := 0; i < 100; i++ {
+			time.Sleep(10 * time.Millisecond)
+			err = os.Mkdir(lockDir, 0700)
+			if err == nil {
+				break
+			}
+			if !os.IsExist(err) {
+				return 0, fmt.Errorf("create cursor lock: %w", err)
+			}
+		}
 		if err != nil {
-			continue
-		}
-		if c > maxCursor {
-			maxCursor = c
+			return 0, fmt.Errorf("cursor lock contended: %w", err)
 		}
 	}
 
-	return maxCursor + 1, nil
+	defer os.Remove(lockDir)
+
+	data, err := os.ReadFile(counterPath)
+	cursor := uint64(0)
+	if err == nil {
+		cursor, err = strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
+		if err != nil {
+			cursor = 0
+		}
+	} else if !os.IsNotExist(err) {
+		return 0, fmt.Errorf("read cursor: %w", err)
+	}
+
+	next := cursor + 1
+
+	tmpPath := counterPath + ".tmp"
+	if err := os.WriteFile(tmpPath, []byte(strconv.FormatUint(next, 10)+"\n"), 0600); err != nil {
+		os.Remove(tmpPath)
+		return 0, fmt.Errorf("write cursor: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, counterPath); err != nil {
+		os.Remove(tmpPath)
+		return 0, fmt.Errorf("rename cursor: %w", err)
+	}
+
+	_ = os.Remove(lockDir)
+
+	return next, nil
 }
 
 type IntentRecord struct {
