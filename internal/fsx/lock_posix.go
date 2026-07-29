@@ -56,12 +56,17 @@ func (f *posixFS) Lock(ctx context.Context, target string, timeout time.Duration
 			return nil, fmt.Errorf("flock error: %v", err)
 		}
 
+		if timeout == 0 {
+			syscall.Close(fd)
+			return nil, fmt.Errorf("HQ_LOCK_TIMEOUT: could not acquire lock on %q", target)
+		}
+
 		if checkStaleLock(lockPath) {
 			os.Remove(lockPath)
 			continue
 		}
 
-		if timeout > 0 && time.Now().After(deadline) {
+		if time.Now().After(deadline) {
 			syscall.Close(fd)
 			return nil, fmt.Errorf("HQ_LOCK_TIMEOUT: could not acquire lock on %q", target)
 		}
