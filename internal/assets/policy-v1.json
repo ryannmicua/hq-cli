@@ -18,7 +18,17 @@
     },
     {
       "operation": "draft-record",
-      "targetPattern": "projects/*/*.md",
+      "targetPattern": "inbox/*.md",
+      "class": "allowed"
+    },
+    {
+      "operation": "draft-record",
+      "targetPattern": "projects/*/reports/*.md",
+      "class": "allowed"
+    },
+    {
+      "operation": "draft-record",
+      "targetPattern": "projects/*/source/*.md",
       "class": "allowed"
     },
     {

@@ -198,7 +198,9 @@ func mustPolicy(t *testing.T) *write.Policy {
 		"rules": [
 			{"operation":"project-check-in","targetPattern":"projects/*/STATE.md","class":"allowed"},
 			{"operation":"session-entry","targetPattern":"SESSION-LOG.md","class":"allowed"},
-			{"operation":"draft-record","targetPattern":"projects/*/*.md","class":"allowed"},
+			{"operation":"draft-record","targetPattern":"inbox/*.md","class":"allowed"},
+			{"operation":"draft-record","targetPattern":"projects/*/reports/*.md","class":"allowed"},
+			{"operation":"draft-record","targetPattern":"projects/*/source/*.md","class":"allowed"},
 			{"operation":"current-work-update","targetPattern":"CURRENT-WORK.md","class":"allowed"},
 			{"operation":"*","targetPattern":"identity/**","class":"denied"},
 			{"operation":"*","targetPattern":"templates/**","class":"denied"},

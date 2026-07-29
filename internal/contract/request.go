@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -70,10 +71,9 @@ type DraftRecord struct {
 }
 
 var AllowedClassifications = map[string]bool{
-	"inbox":   true,
-	"draft":   true,
-	"review":  true,
-	"archive": true,
+	"inbox":           true,
+	"project-report": true,
+	"project-source": true,
 }
 
 type CurrentWorkUpdate struct {
@@ -85,31 +85,38 @@ type CurrentWorkUpdate struct {
 	CurrentState      string   `json:"currentState"`
 	NextAction        string   `json:"nextAction"`
 	LastTouched       string   `json:"lastTouched"`
+	Section           string   `json:"section"`
+}
+
+func DecodeStrict(data json.RawMessage, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	return dec.Decode(v)
 }
 
 func OperationPayload(operation string, data json.RawMessage) (any, error) {
 	switch operation {
 	case "project-check-in":
 		var v ProjectCheckIn
-		if err := json.Unmarshal(data, &v); err != nil {
+		if err := DecodeStrict(data, &v); err != nil {
 			return nil, fmt.Errorf("unmarshal project-check-in: %w", err)
 		}
 		return &v, nil
 	case "session-entry":
 		var v SessionEntry
-		if err := json.Unmarshal(data, &v); err != nil {
+		if err := DecodeStrict(data, &v); err != nil {
 			return nil, fmt.Errorf("unmarshal session-entry: %w", err)
 		}
 		return &v, nil
 	case "draft-record":
 		var v DraftRecord
-		if err := json.Unmarshal(data, &v); err != nil {
+		if err := DecodeStrict(data, &v); err != nil {
 			return nil, fmt.Errorf("unmarshal draft-record: %w", err)
 		}
 		return &v, nil
 	case "current-work-update":
 		var v CurrentWorkUpdate
-		if err := json.Unmarshal(data, &v); err != nil {
+		if err := DecodeStrict(data, &v); err != nil {
 			return nil, fmt.Errorf("unmarshal current-work-update: %w", err)
 		}
 		return &v, nil

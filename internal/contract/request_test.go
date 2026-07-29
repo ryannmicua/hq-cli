@@ -163,6 +163,9 @@ func TestOperationPayloadDraftRecord(t *testing.T) {
 	if v.Title != "Draft" {
 		t.Fatalf("Title = %q, want %q", v.Title, "Draft")
 	}
+	if v.Classification != "inbox" {
+		t.Fatalf("Classification = %q, want %q", v.Classification, "inbox")
+	}
 }
 
 func TestOperationPayloadCurrentWorkUpdate(t *testing.T) {
@@ -222,7 +225,7 @@ func TestOperationPayloadRoundTrip(t *testing.T) {
 }
 
 func TestDraftRecordClassificationAllowed(t *testing.T) {
-	allowed := []string{"inbox", "draft", "review", "archive"}
+	allowed := []string{"inbox", "project-report", "project-source"}
 	for _, c := range allowed {
 		if !contract.AllowedClassifications[c] {
 			t.Fatalf("classification %q should be allowed", c)
