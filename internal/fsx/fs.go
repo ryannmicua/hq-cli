@@ -23,6 +23,7 @@ type FS interface {
 	SyncParent(dir string) error
 
 	Lock(ctx context.Context, target string, timeout time.Duration, exclusive bool) (UnlockFunc, error)
+	LockFile(ctx context.Context, lockPath string, timeout time.Duration, exclusive bool) (UnlockFunc, error)
 	Backup(target, backupPath string) (sha256 string, err error)
 	ReplaceDurable(tempPath, targetPath string) error
 	Capabilities(root string) (Capabilities, error)

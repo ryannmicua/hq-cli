@@ -13,17 +13,28 @@ import (
 	"time"
 )
 
-const staleLockTimeout = 5 * time.Minute
+func staleTimeout() time.Time {
+	d := 5 * time.Minute
+	if s := os.Getenv("HQ_LOCK_STALE_TIMEOUT"); s != "" {
+		if v, err := time.ParseDuration(s); err == nil && v > 0 {
+			d = v
+		}
+	}
+	return time.Now().Add(-d)
+}
 
 func (f *posixFS) Lock(ctx context.Context, target string, timeout time.Duration, exclusive bool) (UnlockFunc, error) {
 	hqDir := filepath.Dir(filepath.Dir(target))
 	lockDir := filepath.Join(hqDir, ".hq-interface", "locks")
-	if err := os.MkdirAll(lockDir, 0700); err != nil {
-		return nil, fmt.Errorf("create lock dir: %w", err)
-	}
-
 	lockName := filepath.Base(target) + ".lock"
 	lockPath := filepath.Join(lockDir, lockName)
+	return f.LockFile(ctx, lockPath, timeout, exclusive)
+}
+
+func (f *posixFS) LockFile(ctx context.Context, lockPath string, timeout time.Duration, exclusive bool) (UnlockFunc, error) {
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0700); err != nil {
+		return nil, fmt.Errorf("create lock dir: %w", err)
+	}
 
 	hostname, _ := os.Hostname()
 	pid := os.Getpid()
@@ -60,7 +71,7 @@ func (f *posixFS) Lock(ctx context.Context, target string, timeout time.Duration
 
 		if timeout == 0 {
 			syscall.Close(fd)
-			return nil, fmt.Errorf("HQ_LOCK_TIMEOUT: could not acquire lock on %q", target)
+			return nil, fmt.Errorf("HQ_LOCK_TIMEOUT: could not acquire lock on %q", lockPath)
 		}
 
 		if checkStaleLock(lockPath) {
@@ -70,7 +81,7 @@ func (f *posixFS) Lock(ctx context.Context, target string, timeout time.Duration
 
 		if time.Now().After(deadline) {
 			syscall.Close(fd)
-			return nil, fmt.Errorf("HQ_LOCK_TIMEOUT: could not acquire lock on %q", target)
+			return nil, fmt.Errorf("HQ_LOCK_TIMEOUT: could not acquire lock on %q", lockPath)
 		}
 
 		select {
@@ -119,5 +130,5 @@ func checkStaleLock(lockPath string) bool {
 	}
 
 	lockTime := time.Unix(0, ts)
-	return time.Since(lockTime) > staleLockTimeout
+	return lockTime.Before(staleTimeout())
 }

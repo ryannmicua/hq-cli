@@ -1,6 +1,9 @@
 package write
 
 import (
+	"sort"
+	"time"
+
 	"github.com/ryannmicua/hq-cli/internal/contract"
 	"github.com/ryannmicua/hq-cli/internal/fsx"
 )
@@ -23,6 +26,48 @@ func NewChangesService(fsys fsx.FS, root string, receipts *ReceiptStore) *Change
 		fsys:     fsys,
 		root:     root,
 	}
+}
+
+func (s *ChangesService) Since(since time.Time, limit int) (ChangesPage, error) {
+	receipts, err := s.receipts.ListAll()
+	if err != nil {
+		return ChangesPage{}, err
+	}
+
+	var filtered []contract.Receipt
+	for _, r := range receipts {
+		t, err := time.Parse(time.RFC3339, r.AppliedAt)
+		if err != nil {
+			continue
+		}
+		if !t.Before(since) {
+			filtered = append(filtered, r)
+		}
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].Cursor < filtered[j].Cursor
+	})
+
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+
+	nextCursor := uint64(0)
+	hasMore := false
+	if len(filtered) > 0 {
+		nextCursor = filtered[len(filtered)-1].Cursor
+		remaining, _, err := s.receipts.ListAfter(nextCursor, 1)
+		if err == nil && len(remaining) > 0 {
+			hasMore = true
+		}
+	}
+
+	return ChangesPage{
+		Receipts:   filtered,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
+	}, nil
 }
 
 func (s *ChangesService) After(cursor uint64, limit int) (ChangesPage, error) {

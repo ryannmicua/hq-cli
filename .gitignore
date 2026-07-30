@@ -7,6 +7,10 @@ coverage.out
 
 # Local interface runtime state
 /.hq-interface/
+**/.hq-interface/locks/
+
+# Test artifacts
+/projects/
 
 # Compound Engineering local config
 .compound-engineering/*.local.yaml

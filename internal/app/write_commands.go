@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ryannmicua/hq-cli/internal/contract"
 	"github.com/ryannmicua/hq-cli/internal/fsx"
@@ -16,16 +18,27 @@ import (
 
 type WriteService struct {
 	store *write.RequestStore
+	fsys  fsx.FS
+	root  string
 }
 
 func NewWriteService(cfgRoot string, policy *write.Policy) *WriteService {
 	f := fsx.NewFS()
 	store := write.NewRequestStore(f, cfgRoot, policy)
-	return &WriteService{store: store}
+	return &WriteService{store: store, fsys: f, root: cfgRoot}
 }
 
 func (s *WriteService) Store() *write.RequestStore {
 	return s.store
+}
+
+func (s *WriteService) SharedLock(ctx context.Context) (fsx.UnlockFunc, error) {
+	lockDir := filepath.Join(s.root, ".hq-interface", "locks")
+	if err := os.MkdirAll(lockDir, 0700); err != nil {
+		return nil, fmt.Errorf("create lock dir: %w", err)
+	}
+	lockPath := filepath.Join(lockDir, "global.lock")
+	return s.fsys.LockFile(ctx, lockPath, 0, false)
 }
 
 const maxRequestSize = 1 << 20 // 1 MiB
@@ -113,6 +126,13 @@ func handleStatus(ctx context.Context, args []string, writeSvc *WriteService, st
 		return writeResult(stdout, r)
 	}
 
+	unlock, err := writeSvc.SharedLock(ctx)
+	if err != nil {
+		r := contract.NewError("status", contract.ErrDetail(contract.CodeLockTimeout, fmt.Sprintf("acquire read lock: %v", err), false, nil))
+		return writeResult(stdout, r)
+	}
+	defer unlock()
+
 	status, err := writeSvc.store.Status(requestID)
 	if err != nil {
 		msg := err.Error()
@@ -137,6 +157,24 @@ func handleStatus(ctx context.Context, args []string, writeSvc *WriteService, st
 	return writeResult(stdout, r)
 }
 
+func resolveApprovalReference(flags map[string]string, stderr io.Writer) string {
+	if ref := flags["approval-reference"]; ref != "" {
+		fmt.Fprintf(stderr, "WARNING: --approval-reference on command line is deprecated; use HQ_APPROVAL_REFERENCE environment variable or stdin instead\n")
+		return ref
+	}
+	if ref := os.Getenv("HQ_APPROVAL_REFERENCE"); ref != "" {
+		return ref
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err == nil {
+		ref := strings.TrimSpace(string(data))
+		if ref != "" {
+			return ref
+		}
+	}
+	return ""
+}
+
 func handleApply(ctx context.Context, args []string, writeSvc *WriteService, engine *write.TransactionEngine, stdout, stderr io.Writer) int {
 	flags, _ := parseFlags(args)
 
@@ -146,10 +184,7 @@ func handleApply(ctx context.Context, args []string, writeSvc *WriteService, eng
 		return writeResult(stdout, r)
 	}
 
-	approvalRef := flags["approval-reference"]
-	if approvalRef == "" {
-		approvalRef = os.Getenv("HQ_APPROVAL_REFERENCE")
-	}
+	approvalRef := resolveApprovalReference(flags, stderr)
 
 	receipt, err := engine.Apply(ctx, requestID, approvalRef)
 	if err != nil {
@@ -187,13 +222,12 @@ func handleApply(ctx context.Context, args []string, writeSvc *WriteService, eng
 func handleChanges(ctx context.Context, args []string, changesSvc *write.ChangesService, stdout, stderr io.Writer) int {
 	flags, _ := parseFlags(args)
 
-	var cursor uint64
 	afterStr := flags["after"]
-	if afterStr != "" {
-		if _, err := fmt.Sscanf(afterStr, "%d", &cursor); err != nil {
-			r := contract.NewError("changes", contract.ErrDetail(contract.CodeInvalidArgument, fmt.Sprintf("invalid cursor value: %s", afterStr), false, nil))
-			return writeResult(stdout, r)
-		}
+	sinceStr := flags["since"]
+
+	if afterStr != "" && sinceStr != "" {
+		r := contract.NewError("changes", contract.ErrDetail(contract.CodeInvalidArgument, "--since and --after are mutually exclusive", false, nil))
+		return writeResult(stdout, r)
 	}
 
 	limit := 100
@@ -201,6 +235,34 @@ func handleChanges(ctx context.Context, args []string, changesSvc *write.Changes
 	if limitStr != "" {
 		if v, err := fmt.Sscanf(limitStr, "%d", &limit); err != nil || v != 1 || limit <= 0 {
 			r := contract.NewError("changes", contract.ErrDetail(contract.CodeInvalidArgument, fmt.Sprintf("invalid limit: %s", limitStr), false, nil))
+			return writeResult(stdout, r)
+		}
+	}
+
+	if sinceStr != "" {
+		since, err := time.Parse(time.RFC3339, sinceStr)
+		if err != nil {
+			r := contract.NewError("changes", contract.ErrDetail(contract.CodeInvalidArgument, fmt.Sprintf("invalid --since value %q: expected RFC 3339 timestamp", sinceStr), false, nil))
+			return writeResult(stdout, r)
+		}
+		page, err := changesSvc.Since(since, limit)
+		if err != nil {
+			r := contract.NewError("changes", contract.ErrDetail(contract.CodeInternalError, err.Error(), false, nil))
+			return writeResult(stdout, r)
+		}
+		dataOut := map[string]any{
+			"receipts":   page.Receipts,
+			"nextCursor": page.NextCursor,
+			"hasMore":    page.HasMore,
+		}
+		r := contract.NewSuccess("changes", dataOut)
+		return writeResult(stdout, r)
+	}
+
+	var cursor uint64
+	if afterStr != "" {
+		if _, err := fmt.Sscanf(afterStr, "%d", &cursor); err != nil {
+			r := contract.NewError("changes", contract.ErrDetail(contract.CodeInvalidArgument, fmt.Sprintf("invalid cursor value: %s", afterStr), false, nil))
 			return writeResult(stdout, r)
 		}
 	}
@@ -261,10 +323,7 @@ func handleRecover(ctx context.Context, args []string, recoverySvc *write.Recove
 			return writeResult(stdout, r)
 		}
 
-		approvalRef := flags["approval-reference"]
-		if approvalRef == "" {
-			approvalRef = os.Getenv("HQ_APPROVAL_REFERENCE")
-		}
+		approvalRef := resolveApprovalReference(flags, stderr)
 
 		receipt, err := recoverySvc.Restore(ctx, requestID, approvalRef)
 		if err != nil {

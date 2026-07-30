@@ -116,6 +116,51 @@ func (rs *ReceiptStore) FindByCursor(cursor uint64) (*contract.Receipt, error) {
 	return &r, nil
 }
 
+func (rs *ReceiptStore) ListAll() ([]contract.Receipt, error) {
+	dir := receiptsDir(rs.root)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read receipts dir: %w", err)
+	}
+
+	var cursors []uint64
+	cursorMap := make(map[uint64]string)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), ".json")
+		c, err := strconv.ParseUint(name, 10, 64)
+		if err != nil {
+			continue
+		}
+		cursors = append(cursors, c)
+		cursorMap[c] = filepath.Join(dir, entry.Name())
+	}
+
+	sort.Slice(cursors, func(i, j int) bool {
+		return cursors[i] < cursors[j]
+	})
+
+	var receipts []contract.Receipt
+	for _, c := range cursors {
+		data, err := os.ReadFile(cursorMap[c])
+		if err != nil {
+			continue
+		}
+		var r contract.Receipt
+		if err := json.Unmarshal(data, &r); err != nil {
+			continue
+		}
+		receipts = append(receipts, r)
+	}
+
+	return receipts, nil
+}
+
 func (rs *ReceiptStore) ListAfter(cursor uint64, limit int) ([]contract.Receipt, uint64, error) {
 	dir := receiptsDir(rs.root)
 	entries, err := os.ReadDir(dir)
