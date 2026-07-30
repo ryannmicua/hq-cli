@@ -217,3 +217,15 @@ func TestFailureInjection_TargetReplace(t *testing.T) {
 	err := runFailureTest(t, injectTargetReplace, root)
 	verifySafeState(t, root, "018f0000-0000-7000-8000-0000f0000001", err)
 }
+
+func TestSince_EmptyStore(t *testing.T) {
+	since := time.Now().Add(-1 * time.Hour)
+	svc := write.NewChangesService(nil, t.TempDir(), write.NewReceiptStore(nil, t.TempDir()))
+	page, err := svc.Since(since, 10)
+	if err != nil {
+		t.Fatalf("Since on empty store: %v", err)
+	}
+	if len(page.Receipts) != 0 {
+		t.Fatalf("expected 0 receipts, got %d", len(page.Receipts))
+	}
+}

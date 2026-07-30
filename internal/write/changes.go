@@ -1,6 +1,7 @@
 package write
 
 import (
+	"log"
 	"sort"
 	"time"
 
@@ -35,9 +36,11 @@ func (s *ChangesService) Since(since time.Time, limit int) (ChangesPage, error) 
 	}
 
 	var filtered []contract.Receipt
+	var parseErrors int
 	for _, r := range receipts {
 		t, err := time.Parse(time.RFC3339, r.AppliedAt)
 		if err != nil {
+			parseErrors++
 			continue
 		}
 		if !t.Before(since) {
@@ -45,22 +48,28 @@ func (s *ChangesService) Since(since time.Time, limit int) (ChangesPage, error) 
 		}
 	}
 
+	if parseErrors > 0 {
+		log.Printf("warn: %d receipts with unparseable AppliedAt timestamp skipped in Since query", parseErrors)
+	}
+
 	sort.Slice(filtered, func(i, j int) bool {
 		return filtered[i].Cursor < filtered[j].Cursor
 	})
 
+	hasMore := limit > 0 && len(filtered) > limit
+	if limit > 0 && len(filtered) == limit && len(filtered) > 0 {
+		remaining, _, err := s.receipts.ListAfter(filtered[len(filtered)-1].Cursor, 1)
+		if err == nil && len(remaining) > 0 {
+			hasMore = true
+		}
+	}
 	if limit > 0 && len(filtered) > limit {
 		filtered = filtered[:limit]
 	}
 
 	nextCursor := uint64(0)
-	hasMore := false
 	if len(filtered) > 0 {
 		nextCursor = filtered[len(filtered)-1].Cursor
-		remaining, _, err := s.receipts.ListAfter(nextCursor, 1)
-		if err == nil && len(remaining) > 0 {
-			hasMore = true
-		}
 	}
 
 	return ChangesPage{

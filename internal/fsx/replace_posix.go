@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+	"sync"
 	"syscall"
-	"unsafe"
 )
 
 func (f *posixFS) Backup(target, backupPath string) (string, error) {
@@ -67,85 +66,89 @@ func detectFilesystemPOSIX(rootPath string) string {
 	if err := syscall.Statfs(rootPath, &stat); err != nil {
 		return "unknown"
 	}
-	// Type fields vary by platform; return the f_type name if recognizable.
 	switch stat.Type {
-	case 0xEF53: // ext4
+	case 0xEF53:
 		return "ext4"
-	case 0x01021994: // tmpfs
+	case 0x01021994:
 		return "tmpfs"
-	case 0x6969: // nfs
+	case 0x6969:
 		return "nfs"
-	case 0xADF5: // adfs
+	case 0xADF5:
 		return "adfs"
-	case 0x137D: // exfat
+	case 0x137D:
 		return "exfat"
-	case 0x4d44: // fat/vfat
+	case 0x4d44:
 		return "vfat"
-	case 0x58465342: // xfs
+	case 0x58465342:
 		return "xfs"
-	case 0x9123683E: // btrfs
+	case 0x9123683E:
 		return "btrfs"
-	case 0x28CD3D45: // hammer2
+	case 0x28CD3D45:
 		return "hammer2"
-	case 0x65735546: // fuse
+	case 0x65735546:
 		return "fuse"
-	case 0x1CD1: // devpts
+	case 0x1CD1:
 		return "devpts"
-	case 0x9fa0: // proc
+	case 0x9fa0:
 		return "proc"
-	case 0x1021994: // ramfs
-		return "ramfs"
-	case 0x2F: // cgroup
+	case 0x2F:
 		return "cgroup"
 	default:
-		// Try macOS/BSD specific types. These are common on Apple filesystems.
-		if stat.Type == 0x482D5341 { // APFS (macOS)
+		if stat.Type == 0x482D5341 {
 			return "apfs"
 		}
-		if stat.Type == 0x48666853 { // HFS+
+		if stat.Type == 0x48666853 {
 			return "hfs+"
 		}
-		if stat.Type == 0x7734 { // ZFS
+		if stat.Type == 0x7734 {
 			return "zfs"
 		}
 		return "unknown"
 	}
 }
 
+var (
+	probeMu   sync.Mutex
+	probeDone bool
+	probeOk   bool
+)
+
 func probeAtomicReplacePOSIX(rootPath string) bool {
+	probeMu.Lock()
+	if probeDone {
+		ok := probeOk
+		probeMu.Unlock()
+		return ok
+	}
+	probeMu.Unlock()
+	// benign race: between the second Unlock and the later Lock+probeDone=true,
+	// another goroutine may also pass the probeDone check and start a redundant
+	// probe. Both use PID-specific temp files, so the duplicate is harmless;
+	// the second writer's identical result wins.
+
 	probeDir := filepath.Join(rootPath, ".hq-interface", "probe")
 	if err := os.MkdirAll(probeDir, 0700); err != nil {
 		return false
 	}
 
-	src := filepath.Join(probeDir, "probe_src.tmp")
-	dst := filepath.Join(probeDir, "probe_dst.tmp")
+	src := filepath.Join(probeDir, fmt.Sprintf("probe_src_%d.tmp", os.Getpid()))
+	dst := filepath.Join(probeDir, fmt.Sprintf("probe_dst_%d.tmp", os.Getpid()))
 
 	if err := os.WriteFile(src, []byte("probe"), 0600); err != nil {
-		os.RemoveAll(probeDir)
+		os.Remove(src)
 		return false
 	}
 
 	if err := os.Rename(src, dst); err != nil {
 		os.Remove(src)
-		os.RemoveAll(probeDir)
 		return false
 	}
 
+	ok := true
 	os.Remove(dst)
-	os.RemoveAll(probeDir)
-	return true
-}
-
-func parseCapOverride(override, rootPath string) Capabilities {
-	parts := strings.SplitN(override, ",", 2)
-	fsType := parts[0]
-	supportReplace := len(parts) < 2 || parts[1] != "no-atomic"
-	return Capabilities{
-		SupportAtomicReplace:        supportReplace,
-		SupportFileLocking:          true,
-		FilesystemType:              fsType,
-		RootPath:                    rootPath,
-		SupportOwnerOnlyPermissions: true,
-	}
+	probeMu.Lock()
+	probeDone = true
+	probeOk = ok
+	probeMu.Unlock()
+	return ok
 }

@@ -8,24 +8,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 )
 
 var (
-	modkernel32Cap             = syscall.NewLazyDLL("kernel32.dll")
-	procGetVolumeInformationW  = modkernel32Cap.NewProc("GetVolumeInformationW")
-	procGetFileInformationByEx = modkernel32Cap.NewProc("GetFileInformationByHandleEx")
-	procCreateFileWCap         = modkernel32Cap.NewProc("CreateFileW")
-	procGetFileType            = modkernel32Cap.NewProc("GetFileType")
-	diskQuery                  = uint32(0x00070000)
+	modkernel32Cap            = syscall.NewLazyDLL("kernel32.dll")
+	procGetVolumeInformationW = modkernel32Cap.NewProc("GetVolumeInformationW")
 )
 
-const (
-	fileTypeDisk    = 0x0001
-	fileTypeUnknown = 0x0000
-	maxPath         = 260
-)
+const maxPath = 260
 
 func (f *windowsFS) Backup(target, backupPath string) (string, error) {
 	input, err := os.ReadFile(target)
@@ -119,17 +112,36 @@ func detectFilesystemWindows(rootPath string) string {
 	return strings.ToLower(fsName)
 }
 
+var (
+	probeMu   sync.Mutex
+	probeDone bool
+	probeOk   bool
+)
+
 func probeAtomicReplace(rootPath string) bool {
+	probeMu.Lock()
+	if probeDone {
+		ok := probeOk
+		probeMu.Unlock()
+		return ok
+	}
+	probeMu.Unlock()
+	// benign race: between the second Unlock and the later Lock+probeDone=true,
+	// another goroutine may also pass the probeDone check and start a redundant
+	// probe. Both use PID-specific temp files, so the duplicate is harmless;
+	// the second writer's identical result wins.
+
 	probeDir := filepath.Join(rootPath, ".hq-interface", "probe")
 	if err := os.MkdirAll(probeDir, 0700); err != nil {
 		return false
 	}
 
-	src := filepath.Join(probeDir, "probe_src.tmp")
-	dst := filepath.Join(probeDir, "probe_dst.tmp")
+	pid := os.Getpid()
+	src := filepath.Join(probeDir, fmt.Sprintf("probe_src_%d.tmp", pid))
+	dst := filepath.Join(probeDir, fmt.Sprintf("probe_dst_%d.tmp", pid))
 
 	if err := os.WriteFile(src, []byte("probe"), 0600); err != nil {
-		os.RemoveAll(probeDir)
+		os.Remove(src)
 		return false
 	}
 
@@ -144,19 +156,9 @@ func probeAtomicReplace(rootPath string) bool {
 	ok := ret != 0
 	os.Remove(src)
 	os.Remove(dst)
-	os.RemoveAll(probeDir)
+	probeMu.Lock()
+	probeDone = true
+	probeOk = ok
+	probeMu.Unlock()
 	return ok
-}
-
-func parseCapOverride(override, rootPath string) Capabilities {
-	parts := strings.SplitN(override, ",", 2)
-	fsType := parts[0]
-	supportReplace := len(parts) < 2 || parts[1] != "no-atomic"
-	return Capabilities{
-		SupportAtomicReplace:        supportReplace,
-		SupportFileLocking:          true,
-		FilesystemType:              fsType,
-		RootPath:                    rootPath,
-		SupportOwnerOnlyPermissions: true,
-	}
 }

@@ -24,16 +24,6 @@ var (
 	procGetFileInformationByHandleEx = modkernel32Lock.NewProc("GetFileInformationByHandleEx")
 )
 
-func staleTimeout() time.Time {
-	d := 5 * time.Minute
-	if s := os.Getenv("HQ_LOCK_STALE_TIMEOUT"); s != "" {
-		if v, err := time.ParseDuration(s); err == nil && v > 0 {
-			d = v
-		}
-	}
-	return time.Now().Add(-d)
-}
-
 const (
 	lockFileFlags     = 0x00000000
 	lockExclusive     = 0x00000002
@@ -49,6 +39,11 @@ const (
 	invalidHandle   = ^uintptr(0)
 
 	fileNameInfo = 0x00000002
+
+	processQueryLimitedInfo = 0x00001000
+	errorAccessDenied       = 5
+	errorInvalidParameter   = 87
+	waitObject0 = 0
 )
 
 func (f *windowsFS) Lock(ctx context.Context, target string, timeout time.Duration, exclusive bool) (UnlockFunc, error) {
@@ -64,11 +59,9 @@ func (f *windowsFS) LockFile(ctx context.Context, lockPath string, timeout time.
 		return nil, fmt.Errorf("create lock dir: %w", err)
 	}
 
-	hostname, _ := os.Hostname()
-	lockInfo := fmt.Sprintf("%s|%d|%d\n", hostname, os.Getpid(), time.Now().UnixNano())
-
-	if err := os.WriteFile(lockPath, []byte(lockInfo), 0600); err != nil {
-		return nil, fmt.Errorf("write lock file: %w", err)
+	hostname := resolveHostname()
+	lockInfo := func() string {
+		return fmt.Sprintf("%s|%d|%d\n", hostname, os.Getpid(), time.Now().UnixNano())
 	}
 
 	lockPathPtr, err := syscall.UTF16PtrFromString(lockPath)
@@ -77,6 +70,7 @@ func (f *windowsFS) LockFile(ctx context.Context, lockPath string, timeout time.
 	}
 
 	deadline := time.Now().Add(timeout)
+	attempt := 0
 	for {
 		handle, _, err := procCreateFileW.Call(
 			uintptr(unsafe.Pointer(lockPathPtr)),
@@ -111,6 +105,8 @@ func (f *windowsFS) LockFile(ctx context.Context, lockPath string, timeout time.
 			uintptr(unsafe.Pointer(&overlapped)),
 		)
 		if ret != 0 {
+			os.WriteFile(lockPath, []byte(lockInfo()), 0600)
+
 			unlock := func() error {
 				var ov syscall.Overlapped
 				ret, _, err := procUnlockFileEx.Call(
@@ -137,7 +133,6 @@ func (f *windowsFS) LockFile(ctx context.Context, lockPath string, timeout time.
 
 		if checkStaleLock(lockPath) {
 			os.Remove(lockPath)
-			os.WriteFile(lockPath, []byte(lockInfo), 0600)
 			continue
 		}
 
@@ -148,7 +143,8 @@ func (f *windowsFS) LockFile(ctx context.Context, lockPath string, timeout time.
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(retryDelay(attempt)):
+			attempt++
 		}
 	}
 }
@@ -169,15 +165,36 @@ func checkStaleLock(lockPath string) bool {
 		return false
 	}
 
-	ret, _, _ := procOpenProcess.Call(
-		0x0400, // PROCESS_QUERY_INFORMATION
+	ret, _, sysErr := procOpenProcess.Call(
+		uintptr(processQueryLimitedInfo),
 		0,
 		uintptr(pid),
 	)
 	if ret != 0 {
-		procWaitForSingleObject.Call(ret, 0)
+		status, _, _ := procWaitForSingleObject.Call(ret, 0)
 		syscall.CloseHandle(syscall.Handle(ret))
+		if status == waitObject0 {
+			ts, err := strconv.ParseInt(parts[2], 10, 64)
+			if err != nil {
+				return false
+			}
+			lockTime := time.Unix(0, ts)
+			return lockTime.Before(staleTimeout())
+		}
 		return false
+	}
+
+	if sysErr != nil {
+		if errno, ok := sysErr.(syscall.Errno); ok {
+			if errno == errorAccessDenied {
+				return false
+			}
+			if errno != errorInvalidParameter {
+				return false
+			}
+		} else {
+			return false
+		}
 	}
 
 	ts, err := strconv.ParseInt(parts[2], 10, 64)

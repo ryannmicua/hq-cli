@@ -118,7 +118,7 @@ func dispatchCommand(cmd string, args []string, svc *read.Service, writeSvc *Wri
 	case "apply":
 		return handleApply(ctx, args, writeSvc, engine, stdout, stderr)
 	case "changes":
-		return handleChanges(ctx, args, changesSvc, stdout, stderr)
+		return handleChanges(ctx, args, changesSvc, writeSvc, stdout, stderr)
 	case "recover":
 		return handleRecover(ctx, args, recoverySvc, stdout, stderr)
 	default:
