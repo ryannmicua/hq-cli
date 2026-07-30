@@ -220,7 +220,7 @@ func TestFailureInjection_TargetReplace(t *testing.T) {
 
 func TestSince_EmptyStore(t *testing.T) {
 	since := time.Now().Add(-1 * time.Hour)
-	svc := NewChangesService(nil, t.TempDir(), NewReceiptStore(nil, t.TempDir()))
+	svc := write.NewChangesService(nil, t.TempDir(), write.NewReceiptStore(nil, t.TempDir()))
 	page, err := svc.Since(since, 10)
 	if err != nil {
 		t.Fatalf("Since on empty store: %v", err)

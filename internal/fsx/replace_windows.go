@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -111,15 +112,20 @@ func detectFilesystemWindows(rootPath string) string {
 	return strings.ToLower(fsName)
 }
 
-var probeCache struct {
-	done bool
-	ok   bool
-}
+var (
+	probeMu   sync.Mutex
+	probeDone bool
+	probeOk   bool
+)
 
 func probeAtomicReplace(rootPath string) bool {
-	if probeCache.done {
-		return probeCache.ok
+	probeMu.Lock()
+	if probeDone {
+		ok := probeOk
+		probeMu.Unlock()
+		return ok
 	}
+	probeMu.Unlock()
 
 	probeDir := filepath.Join(rootPath, ".hq-interface", "probe")
 	if err := os.MkdirAll(probeDir, 0700); err != nil {
@@ -146,7 +152,9 @@ func probeAtomicReplace(rootPath string) bool {
 	ok := ret != 0
 	os.Remove(src)
 	os.Remove(dst)
-	probeCache.done = true
-	probeCache.ok = ok
+	probeMu.Lock()
+	probeDone = true
+	probeOk = ok
+	probeMu.Unlock()
 	return ok
 }

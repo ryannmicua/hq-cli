@@ -38,15 +38,6 @@ func resolveHostname() string {
 
 func parseCapOverride(override, rootPath string) Capabilities {
 	parts := strings.SplitN(override, ",", 3)
-	if len(parts) > 2 {
-		return Capabilities{
-			SupportAtomicReplace:        true,
-			SupportFileLocking:          true,
-			FilesystemType:              parts[0],
-			RootPath:                    rootPath,
-			SupportOwnerOnlyPermissions: true,
-		}
-	}
 	fsType := parts[0]
 	if fsType == "" {
 		fsType = "override"
