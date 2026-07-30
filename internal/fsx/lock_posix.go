@@ -13,16 +13,6 @@ import (
 	"time"
 )
 
-func staleTimeout() time.Time {
-	d := 5 * time.Minute
-	if s := os.Getenv("HQ_LOCK_STALE_TIMEOUT"); s != "" {
-		if v, err := time.ParseDuration(s); err == nil && v > 0 {
-			d = v
-		}
-	}
-	return time.Now().Add(-d)
-}
-
 func (f *posixFS) Lock(ctx context.Context, target string, timeout time.Duration, exclusive bool) (UnlockFunc, error) {
 	hqDir := filepath.Dir(filepath.Dir(target))
 	lockDir := filepath.Join(hqDir, ".hq-interface", "locks")
@@ -36,14 +26,16 @@ func (f *posixFS) LockFile(ctx context.Context, lockPath string, timeout time.Du
 		return nil, fmt.Errorf("create lock dir: %w", err)
 	}
 
-	hostname, _ := os.Hostname()
+	hostname := resolveHostname()
 	pid := os.Getpid()
-	now := time.Now()
-	lockContent := fmt.Sprintf("%s|%d|%d\n", hostname, pid, now.UnixNano())
+
+	lockContent := func() string {
+		return fmt.Sprintf("%s|%d|%d\n", hostname, pid, time.Now().UnixNano())
+	}
 
 	owner, err := syscall.Open(lockPath, syscall.O_RDWR|syscall.O_CREAT|syscall.O_EXCL, 0600)
 	if err == nil {
-		syscall.Write(owner, []byte(lockContent))
+		syscall.Write(owner, []byte(lockContent()))
 		syscall.Close(owner)
 	}
 
@@ -58,6 +50,7 @@ func (f *posixFS) LockFile(ctx context.Context, lockPath string, timeout time.Du
 	}
 
 	deadline := time.Now().Add(timeout)
+	attempt := 0
 	for {
 		err := syscall.Flock(fd, how|syscall.LOCK_NB)
 		if err == nil {
@@ -76,6 +69,18 @@ func (f *posixFS) LockFile(ctx context.Context, lockPath string, timeout time.Du
 
 		if checkStaleLock(lockPath) {
 			os.Remove(lockPath)
+			syscall.Close(fd)
+
+			owner, err := syscall.Open(lockPath, syscall.O_RDWR|syscall.O_CREAT|syscall.O_EXCL, 0600)
+			if err == nil {
+				syscall.Write(owner, []byte(lockContent()))
+				syscall.Close(owner)
+			}
+
+			fd, err = syscall.Open(lockPath, syscall.O_RDWR, 0600)
+			if err != nil {
+				return nil, fmt.Errorf("reopen lock file after stale: %w", err)
+			}
 			continue
 		}
 
@@ -88,7 +93,8 @@ func (f *posixFS) LockFile(ctx context.Context, lockPath string, timeout time.Du
 		case <-ctx.Done():
 			syscall.Close(fd)
 			return nil, ctx.Err()
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(retryDelay(attempt)):
+			attempt++
 		}
 	}
 

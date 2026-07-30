@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -137,6 +138,9 @@ func (rs *ReceiptStore) ListAll() ([]contract.Receipt, error) {
 		if err != nil {
 			continue
 		}
+		if _, exists := cursorMap[c]; exists {
+			log.Printf("warning: duplicate cursor %d in receipt directory, overwriting %s with %s", c, cursorMap[c], filepath.Join(dir, entry.Name()))
+		}
 		cursors = append(cursors, c)
 		cursorMap[c] = filepath.Join(dir, entry.Name())
 	}
@@ -146,16 +150,23 @@ func (rs *ReceiptStore) ListAll() ([]contract.Receipt, error) {
 	})
 
 	var receipts []contract.Receipt
+	var skipped int
 	for _, c := range cursors {
 		data, err := os.ReadFile(cursorMap[c])
 		if err != nil {
+			skipped++
 			continue
 		}
 		var r contract.Receipt
 		if err := json.Unmarshal(data, &r); err != nil {
+			skipped++
 			continue
 		}
 		receipts = append(receipts, r)
+	}
+
+	if skipped > 0 && len(receipts) == 0 {
+		return nil, fmt.Errorf("list all: %d receipt files could not be read or parsed", skipped)
 	}
 
 	return receipts, nil

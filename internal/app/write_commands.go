@@ -33,11 +33,7 @@ func (s *WriteService) Store() *write.RequestStore {
 }
 
 func (s *WriteService) SharedLock(ctx context.Context) (fsx.UnlockFunc, error) {
-	lockDir := filepath.Join(s.root, ".hq-interface", "locks")
-	if err := os.MkdirAll(lockDir, 0700); err != nil {
-		return nil, fmt.Errorf("create lock dir: %w", err)
-	}
-	lockPath := filepath.Join(lockDir, "global.lock")
+	lockPath := filepath.Join(s.root, ".hq-interface", "locks", "global.lock")
 	return s.fsys.LockFile(ctx, lockPath, 0, false)
 }
 
@@ -157,6 +153,8 @@ func handleStatus(ctx context.Context, args []string, writeSvc *WriteService, st
 	return writeResult(stdout, r)
 }
 
+const maxApprovalRefSize = 1 << 12 // 4 KiB
+
 func resolveApprovalReference(flags map[string]string, stderr io.Writer) string {
 	if ref := flags["approval-reference"]; ref != "" {
 		fmt.Fprintf(stderr, "WARNING: --approval-reference on command line is deprecated; use HQ_APPROVAL_REFERENCE environment variable or stdin instead\n")
@@ -165,7 +163,11 @@ func resolveApprovalReference(flags map[string]string, stderr io.Writer) string 
 	if ref := os.Getenv("HQ_APPROVAL_REFERENCE"); ref != "" {
 		return ref
 	}
-	data, err := io.ReadAll(os.Stdin)
+	stat, err := os.Stdin.Stat()
+	if err != nil || (stat.Mode()&os.ModeCharDevice) != 0 {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(os.Stdin, maxApprovalRefSize))
 	if err == nil {
 		ref := strings.TrimSpace(string(data))
 		if ref != "" {
@@ -219,8 +221,15 @@ func handleApply(ctx context.Context, args []string, writeSvc *WriteService, eng
 	return writeResult(stdout, r)
 }
 
-func handleChanges(ctx context.Context, args []string, changesSvc *write.ChangesService, stdout, stderr io.Writer) int {
+func handleChanges(ctx context.Context, args []string, changesSvc *write.ChangesService, writeSvc *WriteService, stdout, stderr io.Writer) int {
 	flags, _ := parseFlags(args)
+
+	unlock, err := writeSvc.SharedLock(ctx)
+	if err != nil {
+		r := contract.NewError("changes", contract.ErrDetail(contract.CodeLockTimeout, fmt.Sprintf("acquire read lock: %v", err), false, nil))
+		return writeResult(stdout, r)
+	}
+	defer unlock()
 
 	afterStr := flags["after"]
 	sinceStr := flags["since"]
