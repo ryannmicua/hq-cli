@@ -68,6 +68,12 @@ func (f *posixFS) LockFile(ctx context.Context, lockPath string, timeout time.Du
 		}
 
 		if checkStaleLock(lockPath) {
+			// benign race: between Remove and Open(O_EXCL) another contender
+			// may have created the file and acquired the flock. O_EXCL then
+			// fails, the plain open succeeds, and the flock loop re-enters
+			// where EWOULDBLOCK detects the other holder. The lock content
+			// (hostname|pid|timestamp) is informational only, so stale
+			// content on a fresh lock is not a correctness bug.
 			os.Remove(lockPath)
 			syscall.Close(fd)
 

@@ -151,14 +151,21 @@ func (rs *ReceiptStore) ListAll() ([]contract.Receipt, error) {
 
 	var receipts []contract.Receipt
 	var skipped int
+	var firstErrs []string
 	for _, c := range cursors {
 		data, err := os.ReadFile(cursorMap[c])
 		if err != nil {
+			if len(firstErrs) < 3 {
+				firstErrs = append(firstErrs, fmt.Sprintf("%s: %v", cursorMap[c], err))
+			}
 			skipped++
 			continue
 		}
 		var r contract.Receipt
 		if err := json.Unmarshal(data, &r); err != nil {
+			if len(firstErrs) < 3 {
+				firstErrs = append(firstErrs, fmt.Sprintf("%s: %v", cursorMap[c], err))
+			}
 			skipped++
 			continue
 		}
@@ -166,7 +173,11 @@ func (rs *ReceiptStore) ListAll() ([]contract.Receipt, error) {
 	}
 
 	if skipped > 0 && len(receipts) == 0 {
-		return nil, fmt.Errorf("list all: %d receipt files could not be read or parsed", skipped)
+		detail := ""
+		if len(firstErrs) > 0 {
+			detail = ": " + strings.Join(firstErrs, "; ")
+		}
+		return nil, fmt.Errorf("list all: %d receipt files could not be read or parsed%s", skipped, detail)
 	}
 
 	return receipts, nil

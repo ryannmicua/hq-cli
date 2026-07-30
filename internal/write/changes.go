@@ -57,6 +57,12 @@ func (s *ChangesService) Since(since time.Time, limit int) (ChangesPage, error) 
 	})
 
 	hasMore := limit > 0 && len(filtered) > limit
+	if limit > 0 && len(filtered) == limit && len(filtered) > 0 {
+		remaining, _, err := s.receipts.ListAfter(filtered[len(filtered)-1].Cursor, 1)
+		if err == nil && len(remaining) > 0 {
+			hasMore = true
+		}
+	}
 	if limit > 0 && len(filtered) > limit {
 		filtered = filtered[:limit]
 	}

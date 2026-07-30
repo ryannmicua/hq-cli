@@ -126,6 +126,10 @@ func probeAtomicReplace(rootPath string) bool {
 		return ok
 	}
 	probeMu.Unlock()
+	// benign race: between the second Unlock and the later Lock+probeDone=true,
+	// another goroutine may also pass the probeDone check and start a redundant
+	// probe. Both use PID-specific temp files, so the duplicate is harmless;
+	// the second writer's identical result wins.
 
 	probeDir := filepath.Join(rootPath, ".hq-interface", "probe")
 	if err := os.MkdirAll(probeDir, 0700); err != nil {

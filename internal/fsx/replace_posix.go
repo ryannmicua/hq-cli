@@ -91,8 +91,6 @@ func detectFilesystemPOSIX(rootPath string) string {
 		return "devpts"
 	case 0x9fa0:
 		return "proc"
-	case 0x1021994:
-		return "ramfs"
 	case 0x2F:
 		return "cgroup"
 	default:
@@ -123,6 +121,10 @@ func probeAtomicReplacePOSIX(rootPath string) bool {
 		return ok
 	}
 	probeMu.Unlock()
+	// benign race: between the second Unlock and the later Lock+probeDone=true,
+	// another goroutine may also pass the probeDone check and start a redundant
+	// probe. Both use PID-specific temp files, so the duplicate is harmless;
+	// the second writer's identical result wins.
 
 	probeDir := filepath.Join(rootPath, ".hq-interface", "probe")
 	if err := os.MkdirAll(probeDir, 0700); err != nil {

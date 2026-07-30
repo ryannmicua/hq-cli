@@ -43,8 +43,7 @@ const (
 	processQueryLimitedInfo = 0x00001000
 	errorAccessDenied       = 5
 	errorInvalidParameter   = 87
-	waitObject0             = 0
-	waitTimeout             = 0x00000102
+	waitObject0 = 0
 )
 
 func (f *windowsFS) Lock(ctx context.Context, target string, timeout time.Duration, exclusive bool) (UnlockFunc, error) {
@@ -186,11 +185,14 @@ func checkStaleLock(lockPath string) bool {
 	}
 
 	if sysErr != nil {
-		errno := sysErr.(syscall.Errno)
-		if errno == errorAccessDenied {
-			return false
-		}
-		if errno != errorInvalidParameter {
+		if errno, ok := sysErr.(syscall.Errno); ok {
+			if errno == errorAccessDenied {
+				return false
+			}
+			if errno != errorInvalidParameter {
+				return false
+			}
+		} else {
 			return false
 		}
 	}
